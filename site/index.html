@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>LCP Registry — Browse &amp; Download Manifests</title>
+  <meta name="description" content="Browse, search and download pre-built Library Context Protocol manifests for popular packages.">
+  <link rel="icon" type="image/png" href="asset/logo.32.png">
+
+  <!-- Styles (modular) -->
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/registry.css">
+
+  <!-- Theme (runs immediately to prevent flash) -->
+  <script src="js/theme.js"></script>
+</head>
+<body>
+  <!-- Header (loaded dynamically) -->
+  <div id="header-placeholder"></div>
+
+  <main>
+    <!-- ===== Hero ===== -->
+    <section class="hero">
+      <div class="container">
+        <span class="hero__badge" data-animate="fade-in">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 9.4 7.55 4.24"/><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.29 7 12 12 20.71 7"/><line x1="12" y1="22" x2="12" y2="12"/></svg>
+          Manifest Registry
+        </span>
+        <h1 class="hero__title" data-animate="fade-up">LCP Registry</h1>
+        <p class="hero__subtitle" data-animate="fade-up" data-delay="80">
+          Browse, search and download pre-built
+          <strong style="color:var(--color-primary)">Library Context Protocol</strong>
+          manifests.
+        </p>
+
+        <!-- Search -->
+        <div class="hero__search" data-animate="fade-up" data-delay="160">
+          <div class="search-box">
+            <span class="search-box__icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+            </span>
+            <input
+              type="search"
+              class="search-box__input"
+              id="search-input"
+              placeholder="Search packages…"
+              autocomplete="off"
+              spellcheck="false"
+            >
+            <button class="search-box__clear" id="search-clear" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Quick stats -->
+        <div class="hero__stats" data-animate="fade-up" data-delay="240">
+          <div class="hero__stat">
+            <span class="hero__stat-value" id="stat-packages">–</span>
+            Packages
+          </div>
+          <div class="hero__stat">
+            <span class="hero__stat-value" id="stat-languages">–</span>
+            Languages
+          </div>
+          <div class="hero__stat">
+            <span class="hero__stat-value" id="stat-versions">–</span>
+            Versions
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Filter bar ===== -->
+    <section class="filter-bar">
+      <div class="container filter-bar__inner">
+        <div class="filter-bar__left">
+          <span class="filter-bar__label">Language</span>
+          <div class="chip-group" id="language-chips">
+            <!-- rendered by JS -->
+          </div>
+        </div>
+        <div class="filter-bar__right">
+          <span class="results-count" id="results-count"></span>
+          <select class="select" id="sort-select" aria-label="Sort packages">
+            <option value="name">Sort by name</option>
+            <option value="recent">Sort by recent</option>
+            <option value="versions">Sort by versions</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Packages ===== -->
+    <section class="packages-section">
+      <div class="container">
+        <div id="packages-table-wrap">
+          <!-- rendered by JS -->
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Loading packages…</span>
+          </div>
+        </div>
+
+        <div class="empty-state" id="empty-state" style="display:none">
+          <svg class="empty-state__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <p class="empty-state__title">No packages found</p>
+          <p class="empty-state__text">Try a different search term or filter.</p>
+        </div>
+
+        <div class="pagination" id="pagination"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Footer (loaded dynamically) -->
+  <div id="footer-placeholder"></div>
+
+  <!-- ===== Manifest Viewer Modal ===== -->
+  <div class="modal-overlay" id="viewer-overlay"></div>
+  <div class="modal" id="viewer-modal" role="dialog" aria-modal="true" aria-label="Manifest viewer">
+    <div class="modal__header">
+      <h2 class="modal__title" id="viewer-title"></h2>
+      <button class="modal__close" id="viewer-close" aria-label="Close viewer">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+    <div class="modal__body" id="viewer-body"></div>
+  </div>
+
+  <!-- Scripts (modular) -->
+  <script src="js/components.js"></script>
+  <script src="js/animations.js"></script>
+  <script src="js/registry.js"></script>
+</body>
+</html>

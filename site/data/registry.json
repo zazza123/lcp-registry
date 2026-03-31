@@ -1,0 +1,35 @@
+{
+  "generated": "2026-03-31T21:19:38Z",
+  "repository": "https://github.com/zazza123/lcp-registry",
+  "rawUrl": "https://raw.githubusercontent.com/zazza123/lcp-registry/main",
+  "totalPackages": 1,
+  "packages": [
+    {
+      "name": "azure-ai-contentunderstanding",
+      "qualifiedName": "azure.ai.contentunderstanding",
+      "language": "python",
+      "distribution": "pypi",
+      "latestVersion": "1.0.1",
+      "versions": [
+        {
+          "version": "1.0.1",
+          "file": "1.0.1.lcp.json.gz",
+          "date": "2026-03-31T11:02:43.591242Z"
+        },
+        {
+          "version": "1.0.0",
+          "file": "1.0.0.lcp.json.gz",
+          "date": "2026-03-31T11:01:05.484988Z"
+        },
+        {
+          "version": "1.0.0b1",
+          "file": "1.0.0b1.lcp.json.gz",
+          "date": "2026-03-31T10:59:51.461753Z"
+        }
+      ],
+      "schemaVersion": "1.0",
+      "generatedDate": "2026-03-31T11:02:43.591242Z",
+      "path": "manifests/python/a/azure-ai-contentunderstanding"
+    }
+  ]
+}
