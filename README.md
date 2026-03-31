@@ -4,25 +4,26 @@ A community-maintained registry of [Library Context Protocol (LCP)](https://gith
 
 ## What Is This?
 
-The LCP Registry stores pre-built `.lcp.json` manifest files for popular packages. The LCP MCP Plugin uses this registry as a fallback: if a manifest is not available locally, it can fetch it from here.
+The LCP Registry stores pre-built `.lcp.json.gz` manifest files for popular packages. The LCP MCP Plugin uses this registry as a fallback: if a manifest is not available locally, it can fetch it from here.
 
 ## Directory Structure
 
 ```
 manifests/
 └── {language}/
-    └── {package_name}/
-        ├── {version}.lcp.json   # Full LCP manifest for a specific version
-        └── latest.json          # Points to the most recent published version
+    └── {package_name[0]}/           # First letter of the package name
+        └── {package_name}/
+            ├── {version}.lcp.json.gz  # Gzip-compressed LCP manifest
+            └── latest.json            # Points to the most recent published version
 ```
 
 **Examples:**
 
 ```
-manifests/python/requests/2.31.0.lcp.json
-manifests/python/requests/latest.json
-manifests/python/numpy/1.26.4.lcp.json
-manifests/python/numpy/latest.json
+manifests/python/r/requests/2.31.0.lcp.json.gz
+manifests/python/r/requests/latest.json
+manifests/python/n/numpy/1.26.4.lcp.json.gz
+manifests/python/n/numpy/latest.json
 ```
 
 ### `latest.json` Format
@@ -32,7 +33,7 @@ The `latest.json` file is a small pointer document:
 ```json
 {
   "version": "2.31.0",
-  "manifest": "2.31.0.lcp.json"
+  "manifest": "2.31.0.lcp.json.gz"
 }
 ```
 
@@ -46,18 +47,19 @@ The `latest.json` file is a small pointer document:
    pip install lcp
    pip install <package>==<version>
    lcp scan <package> -o <version>.lcp.json
+   gzip <version>.lcp.json        # produces <version>.lcp.json.gz
    ```
 
 2. **Place the file** under the correct path:
 
    ```
-   manifests/<language>/<package_name>/<version>.lcp.json
+   manifests/<language>/<package_name[0]>/<package_name>/<version>.lcp.json.gz
    ```
 
    For example, for `requests` version `2.31.0` in Python:
 
    ```
-   manifests/python/requests/2.31.0.lcp.json
+   manifests/python/r/requests/2.31.0.lcp.json.gz
    ```
 
 3. **Update `latest.json`** if this is the most recent version:
@@ -65,14 +67,14 @@ The `latest.json` file is a small pointer document:
    ```json
    {
      "version": "2.31.0",
-     "manifest": "2.31.0.lcp.json"
+     "manifest": "2.31.0.lcp.json.gz"
    }
    ```
 
    Place `latest.json` in the same directory as the manifest:
 
    ```
-   manifests/python/requests/latest.json
+   manifests/python/r/requests/latest.json
    ```
 
 4. **Open a pull request** with a title like:
@@ -86,6 +88,7 @@ The `latest.json` file is a small pointer document:
 | Field | Convention | Example |
 |-------|-----------|---------|
 | `{language}` | Lowercase language name | `python`, `javascript` |
+| `{package_name[0]}` | First letter of the package name (lowercase) | `r` for `requests`, `n` for `numpy` |
 | `{package_name}` | Exact package name from its registry | `requests`, `numpy` |
 | `{version}` | Exact semver version string | `2.31.0` |
 
@@ -94,7 +97,7 @@ The `latest.json` file is a small pointer document:
 Before opening a pull request, validate your manifest:
 
 ```bash
-lcp validate manifests/python/requests/2.31.0.lcp.json
+lcp validate manifests/python/r/requests/2.31.0.lcp.json.gz
 ```
 
 The manifest must pass schema validation without errors.

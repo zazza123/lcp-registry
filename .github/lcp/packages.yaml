@@ -1,0 +1,3 @@
+python:
+  - name: azure-ai-contentunderstanding
+    include_prereleases: false
