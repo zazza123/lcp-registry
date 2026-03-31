@@ -164,8 +164,16 @@ def main() -> None:
 
         try:
             all_versions = fetch_pypi_versions(name)
-        except Exception as exc:  # noqa: BLE001
-            msg = f"[{name}] ERROR fetching versions from PyPI: {exc}"
+        except requests.HTTPError as exc:
+            msg = (
+                f"[{name}] ERROR fetching versions from PyPI "
+                f"(HTTP {exc.response.status_code}): {exc}"
+            )
+            print(msg)
+            report_lines.append(msg)
+            continue
+        except requests.RequestException as exc:
+            msg = f"[{name}] ERROR fetching versions from PyPI (network error): {exc}"
             print(msg)
             report_lines.append(msg)
             continue
@@ -188,20 +196,45 @@ def main() -> None:
             print(f"[{name}] Generating manifest for version {version} …")
             try:
                 generate_manifest(name, version, manifest_path)
+            except subprocess.CalledProcessError as exc:
+                msg = (
+                    f"[{name}] ERROR generating manifest for {version} "
+                    f"(command '{' '.join(exc.cmd)}' returned {exc.returncode})"
+                )
+                print(msg)
+                report_lines.append(msg)
+                continue
+            except OSError as exc:
+                msg = f"[{name}] ERROR writing manifest file for {version}: {exc}"
+                print(msg)
+                report_lines.append(msg)
+                continue
+
+            try:
                 update_latest_json(package_dir, version)
                 commit_msg = (
                     f"ADD: python/{name} {version}\n\n"
                     f"Add LCP manifest for {name} version {version}."
                 )
                 git_commit(commit_msg, [manifest_path, latest_path])
-                msg = f"[{name}] Added manifest for version {version}"
+            except subprocess.CalledProcessError as exc:
+                msg = (
+                    f"[{name}] ERROR committing manifest for {version} "
+                    f"(command '{' '.join(exc.cmd)}' returned {exc.returncode})"
+                )
                 print(msg)
                 report_lines.append(msg)
-                total_added += 1
-            except Exception as exc:  # noqa: BLE001
-                msg = f"[{name}] ERROR processing version {version}: {exc}"
+                continue
+            except OSError as exc:
+                msg = f"[{name}] ERROR updating latest.json for {version}: {exc}"
                 print(msg)
                 report_lines.append(msg)
+                continue
+
+            msg = f"[{name}] Added manifest for version {version}"
+            print(msg)
+            report_lines.append(msg)
+            total_added += 1
 
     # Write summary report
     header = [

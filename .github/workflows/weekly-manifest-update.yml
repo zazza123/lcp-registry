@@ -25,7 +25,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install lcp requests pyyaml packaging
+          pip install -r .github/lcp/requirements.txt
 
       - name: Configure git identity
         run: |
