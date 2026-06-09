@@ -109,7 +109,7 @@ def generate_manifest(package_name: str, version: str, output_gz: Path) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         json_file = Path(tmpdir) / f"{version}.lcp.json"
         subprocess.run(
-            ["lcp", "scan", package_name, "-o", str(json_file)],
+            [sys.executable, "-m", "lcp", "scan", package_name, "-o", str(json_file)],
             check=True,
         )
         with open(json_file, "rb") as f_in, gzip.open(output_gz, "wb") as f_out:

@@ -1,4 +1,4 @@
-lcp
+lcp>=1.0.1
 packaging>=24.0
 pyyaml>=6.0
 requests>=2.32.0
