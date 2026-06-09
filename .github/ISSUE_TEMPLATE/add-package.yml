@@ -1,0 +1,45 @@
+name: Request a new package
+description: Request that a manifest be added for a package not yet in the registry
+title: "ADD: <language>/<package-name>"
+labels: ["manifest-request"]
+body:
+  - type: input
+    id: package-name
+    attributes:
+      label: Package name
+      description: Exact name as it appears on PyPI (or other registry)
+      placeholder: requests
+    validations:
+      required: true
+
+  - type: dropdown
+    id: language
+    attributes:
+      label: Language / ecosystem
+      options:
+        - Python (PyPI)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Specific version to add. Leave blank for latest stable.
+      placeholder: 2.31.0
+
+  - type: input
+    id: registry-url
+    attributes:
+      label: Package registry URL
+      placeholder: https://pypi.org/project/requests/
+    validations:
+      required: true
+
+  - type: textarea
+    id: reason
+    attributes:
+      label: Why would this package be useful?
+      description: Brief description of the use case or audience that would benefit from having this manifest available.
+    validations:
+      required: true

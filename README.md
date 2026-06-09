@@ -2,6 +2,8 @@
 
 A community-maintained registry of [Library Context Protocol (LCP)](https://github.com/zazza123/lcp) manifests.
 
+**Browse the live registry:** [zazza123.github.io/lcp-registry](https://zazza123.github.io/lcp-registry)
+
 ## What Is This?
 
 The LCP Registry stores pre-built `.lcp.json.gz` manifest files for popular packages. The LCP MCP Plugin uses this registry as a fallback: if a manifest is not available locally, it can fetch it from here.
@@ -116,6 +118,12 @@ The manifest must pass schema validation without errors.
 | Python | `manifests/python/` |
 
 Additional languages will be added as LCP scanners become available.
+
+## Automated Updates
+
+A weekly GitHub Actions workflow scans new versions of tracked packages from PyPI and opens a pull request automatically. Packages tracked by the automation are listed in [`.github/lcp/packages.yaml`](.github/lcp/packages.yaml).
+
+If you want a package added to the automated tracker instead of submitting manifests manually, open an issue using the **Request a new package** template.
 
 ## License
 
