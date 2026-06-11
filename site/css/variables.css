@@ -70,7 +70,7 @@
   --z-tooltip: 400;
 
   /* Layout */
-  --header-height: 72px;
+  --header-height: 48px; /* matches the LCP docs navbar (Material 2.4rem @ 125%) */
   --container-max: 1200px;
 
   /* Language colours */
