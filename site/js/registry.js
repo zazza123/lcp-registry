@@ -352,6 +352,7 @@ async function openViewer(pkg, version) {
   if (!overlay || !modal) return;
 
   title.textContent = pkg.name;
+  document.title = pkg.name + ' | LCP Registry';
   body.innerHTML = '<div class="loading-state"><div class="spinner"></div><span>Loading manifest…</span></div>';
 
   overlay.classList.add('is-open');
@@ -372,6 +373,7 @@ function closeViewer() {
   overlay.classList.remove('is-open');
   modal.classList.remove('is-open');
   document.body.style.overflow = '';
+  document.title = 'Home | LCP Registry';
 }
 
 async function fetchManifest(pkg, version) {
@@ -580,6 +582,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   await loadComponents();
   initThemeToggle();
   initMobileMenu();
+  initRepoFacts();
   initAnimations();
   await initRegistry();
 

@@ -1,15 +1,18 @@
 <header class="header" id="site-header">
   <div class="container header__inner">
-    <a href="/" class="header__logo">
-      <img src="asset/logo.32.png" alt="LCP" width="32" height="32">
-      <span>LCP</span>
-      <span class="header__logo-sep">/</span>
-      <span class="header__logo-label">Registry</span>
-    </a>
+    <div class="header__brand">
+      <a href="https://zazza123.github.io/lcp-registry/" class="header__logo" aria-label="LCP Registry — home">
+        <img src="asset/logo.32.png" alt="LCP" width="32" height="32">
+      </a>
+      <span class="header__brand-text">
+        <span class="header__logo-name">LCP</span>
+        <span class="header__logo-sep">/</span>
+        <span class="header__logo-label">Registry</span>
+      </span>
+    </div>
 
     <nav class="header__nav" id="main-nav">
-      <a href="/" class="nav__link nav__link--active">Registry</a>
-      <a href="https://github.com/zazza123/lcp" class="nav__link" target="_blank" rel="noopener">LCP Docs</a>
+      <a href="https://zazza123.github.io/lcp/" class="nav__link nav__link--brand">Docs</a>
     </nav>
 
     <div class="header__actions">
@@ -22,8 +25,25 @@
         </svg>
       </button>
 
-      <a href="https://github.com/zazza123/lcp-registry" class="header__github" target="_blank" rel="noopener" aria-label="GitHub repository">
-        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.31-5.47-1.34-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6.02 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.62-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.21.69.82.57A12 12 0 0 0 12 .3"/></svg>
+      <a href="https://github.com/zazza123/lcp" class="header__repo" target="_blank" rel="noopener" aria-label="LCP on GitHub" data-repo="zazza123/lcp">
+        <svg class="header__repo-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .3a12 12 0 0 0-3.8 23.38c.6.12.83-.26.83-.57L9 21.07c-3.34.72-4.04-1.61-4.04-1.61-.55-1.39-1.34-1.76-1.34-1.76-1.08-.74.08-.73.08-.73 1.2.09 1.84 1.24 1.84 1.24 1.07 1.83 2.8 1.3 3.49 1 .1-.78.42-1.3.76-1.6-2.67-.31-5.47-1.34-5.47-5.93 0-1.31.47-2.38 1.24-3.22-.14-.3-.54-1.52.1-3.18 0 0 1-.32 3.3 1.23a11.5 11.5 0 0 1 6.02 0c2.28-1.55 3.29-1.23 3.29-1.23.64 1.66.24 2.88.12 3.18a4.65 4.65 0 0 1 1.23 3.22c0 4.61-2.8 5.62-5.48 5.92.42.36.81 1.1.81 2.22l-.01 3.29c0 .31.21.69.82.57A12 12 0 0 0 12 .3"/></svg>
+        <span class="header__repo-info">
+          <span class="header__repo-name">zazza123/lcp</span>
+          <span class="header__repo-facts">
+            <span class="header__repo-fact" data-fact="version" hidden>
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M1 7.775V2.75C1 1.784 1.784 1 2.75 1h5.025c.464 0 .91.184 1.238.513l6.25 6.25a1.75 1.75 0 0 1 0 2.474l-5.026 5.026a1.75 1.75 0 0 1-2.474 0l-6.25-6.25A1.75 1.75 0 0 1 1 7.775M2.75 2.5a.25.25 0 0 0-.25.25v5.025c0 .066.026.13.073.177l6.25 6.25a.25.25 0 0 0 .354 0l5.025-5.025a.25.25 0 0 0 0-.354l-6.25-6.25a.25.25 0 0 0-.177-.073zM6 5a1 1 0 1 1 0 2 1 1 0 0 1 0-2"/></svg>
+              <span class="header__repo-fact-value"></span>
+            </span>
+            <span class="header__repo-fact" data-fact="stars">
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.751.751 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25"/></svg>
+              <span class="header__repo-fact-value">–</span>
+            </span>
+            <span class="header__repo-fact" data-fact="forks">
+              <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M5 5.372v.878c0 .414.336.75.75.75h4.5a.75.75 0 0 0 .75-.75v-.878a2.25 2.25 0 1 1 1.5 0v.878a2.25 2.25 0 0 1-2.25 2.25h-1.5v2.128a2.251 2.251 0 1 1-1.5 0V8.5h-1.5A2.25 2.25 0 0 1 3.5 6.25v-.878a2.25 2.25 0 1 1 1.5 0M5 3.25a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0m6.75.75a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5m-3 8.75a.75.75 0 1 0-1.5 0 .75.75 0 0 0 1.5 0"/></svg>
+              <span class="header__repo-fact-value">–</span>
+            </span>
+          </span>
+        </span>
       </a>
 
       <button class="header__menu-btn" id="menu-btn" aria-label="Toggle menu" aria-expanded="false">
