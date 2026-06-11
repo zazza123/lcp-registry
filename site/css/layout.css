@@ -146,19 +146,48 @@
 [data-theme="dark"] .theme-toggle__sun  { display: none; }
 [data-theme="dark"] .theme-toggle__moon { display: block; }
 
-/* GitHub link */
-.header__github {
+/* GitHub repo widget — mirrors Material's md-source: repo name plus
+   star/fork/tag facts pulled from the GitHub API. Points at the LCP repo. */
+.header__repo {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
+  gap: var(--space-xs);
+  padding: 0.25rem 0.5rem;
   color: var(--color-text-secondary);
   border-radius: var(--radius-md);
   transition: all var(--transition-fast);
 }
-.header__github:hover { background: var(--color-bg-muted); color: var(--color-text); }
-.header__github svg { width: 20px; height: 20px; }
+.header__repo:hover { background: var(--color-bg-muted); color: var(--color-text); }
+.header__repo-icon { width: 22px; height: 22px; flex-shrink: 0; }
+
+.header__repo-info {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+  min-width: 0;
+}
+.header__repo-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.header__repo-facts {
+  display: flex;
+  gap: 0.6rem;
+  font-size: 0.6875rem;
+  color: var(--color-text-muted);
+}
+.header__repo-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2em;
+}
+.header__repo-fact svg { width: 11px; height: 11px; flex-shrink: 0; }
+
+/* On narrow screens collapse to just the GitHub glyph. */
+@media (max-width: 640px) {
+  .header__repo-info { display: none; }
+}
 
 /* Mobile menu */
 .header__menu-btn {

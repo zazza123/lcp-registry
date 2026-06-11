@@ -582,6 +582,7 @@ document.addEventListener('DOMContentLoaded', async function () {
   await loadComponents();
   initThemeToggle();
   initMobileMenu();
+  initRepoFacts();
   initAnimations();
   await initRegistry();
 
