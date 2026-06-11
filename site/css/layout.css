@@ -107,6 +107,16 @@
   color: var(--color-primary-dark);
   background: var(--color-primary-bg);
 }
+/* Cross-link to the LCP docs site: orange + bold, mirroring the docs
+   navbar's link back to the registry. */
+.nav__link--brand {
+  color: var(--color-primary);
+  font-weight: 700;
+}
+.nav__link--brand:hover {
+  color: var(--color-primary-dark);
+  background: var(--color-primary-bg);
+}
 
 .header__actions {
   display: flex;
