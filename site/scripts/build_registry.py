@@ -8,6 +8,36 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+from packaging.version import InvalidVersion, Version
+
+MANIFEST_SUFFIX = ".lcp.json.gz"
+
+
+def derive_latest(pkg_path):
+    """Return a latest-pointer dict derived from the manifest files on disk.
+
+    Used as a fallback when latest.json is absent so a package is never
+    silently dropped from the site just because the pointer file is missing.
+    Picks the highest stable version, falling back to the highest prerelease
+    only when no stable release exists.
+    """
+    parsed = []
+    for fname in os.listdir(pkg_path):
+        if not fname.endswith(MANIFEST_SUFFIX):
+            continue
+        ver_str = fname[: -len(MANIFEST_SUFFIX)]
+        try:
+            parsed.append((Version(ver_str), ver_str))
+        except InvalidVersion:
+            continue
+    if not parsed:
+        return None
+    stable = [pair for pair in parsed if not pair[0].is_prerelease]
+    pool = stable or parsed
+    pool.sort(key=lambda pair: pair[0])
+    latest_ver = pool[-1][1]
+    return {"version": latest_ver, "manifest": f"{latest_ver}{MANIFEST_SUFFIX}"}
+
 
 def get_repo_url():
     """Read the GitHub repo URL from git remote."""
@@ -52,11 +82,13 @@ def build_registry():
                     continue
 
                 latest_file = os.path.join(pkg_path, "latest.json")
-                if not os.path.exists(latest_file):
-                    continue
-
-                with open(latest_file) as f:
-                    latest = json.load(f)
+                if os.path.exists(latest_file):
+                    with open(latest_file) as f:
+                        latest = json.load(f)
+                else:
+                    latest = derive_latest(pkg_path)
+                    if latest is None:
+                        continue
 
                 # Read latest manifest for metadata
                 gz_path = os.path.join(pkg_path, latest["manifest"])

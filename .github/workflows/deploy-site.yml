@@ -32,6 +32,9 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Install dependencies
+        run: pip install 'packaging>=24.0'
+
       - name: Generate registry.json
         run: python3 site/scripts/build_registry.py
 
