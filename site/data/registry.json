@@ -1,8 +1,8 @@
 {
-  "generated": "2026-03-31T21:19:38Z",
+  "generated": "2026-06-27T16:16:59Z",
   "repository": "https://github.com/zazza123/lcp-registry",
   "rawUrl": "https://raw.githubusercontent.com/zazza123/lcp-registry/main",
-  "totalPackages": 1,
+  "totalPackages": 2,
   "packages": [
     {
       "name": "azure-ai-contentunderstanding",
@@ -30,6 +30,23 @@
       "schemaVersion": "1.0",
       "generatedDate": "2026-03-31T11:02:43.591242Z",
       "path": "manifests/python/a/azure-ai-contentunderstanding"
+    },
+    {
+      "name": "google-adk",
+      "qualifiedName": "google.adk",
+      "language": "python",
+      "distribution": "pypi",
+      "latestVersion": "2.2.0",
+      "versions": [
+        {
+          "version": "2.2.0",
+          "file": "2.2.0.lcp.json.gz",
+          "date": "2026-06-26T13:57:03.527799Z"
+        }
+      ],
+      "schemaVersion": "1.0",
+      "generatedDate": "2026-06-26T13:57:03.527799Z",
+      "path": "manifests/python/g/google-adk"
     }
   ]
 }
