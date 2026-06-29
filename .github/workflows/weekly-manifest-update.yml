@@ -40,6 +40,7 @@ jobs:
           python .github/lcp/update_manifests.py
 
       - name: Push commits
+        if: always()
         run: |
           git push
 
