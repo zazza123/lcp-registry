@@ -1,5 +1,7 @@
 python:
   - name: azure-ai-contentunderstanding
+    import_name: azure.ai.contentunderstanding
     include_prereleases: false
   - name: google-adk
+    import_name: google.adk
     include_prereleases: false

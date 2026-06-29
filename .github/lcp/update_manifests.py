@@ -96,8 +96,16 @@ def filter_versions(
     return [v_str for _, v_str in valid]
 
 
-def generate_manifest(package_name: str, version: str, output_gz: Path) -> None:
-    """Install *package_name==version*, scan it, and write gzip manifest."""
+def generate_manifest(
+    package_name: str, import_name: str, version: str, output_gz: Path
+) -> None:
+    """Install *package_name==version*, scan *import_name*, write gzip manifest.
+
+    The package is downloaded/installed by its PyPI distribution name
+    (*package_name*) but scanned by its importable module name (*import_name*),
+    which can differ (e.g. ``azure-ai-contentunderstanding`` →
+    ``azure.ai.contentunderstanding``).
+    """
     subprocess.run(
         [
             sys.executable, "-m", "pip", "install",
@@ -109,7 +117,7 @@ def generate_manifest(package_name: str, version: str, output_gz: Path) -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         json_file = Path(tmpdir) / f"{version}.lcp.json"
         subprocess.run(
-            [sys.executable, "-m", "lcp", "scan", package_name, "-o", str(json_file)],
+            [sys.executable, "-m", "lcp", "scan", import_name, "-o", str(json_file)],
             check=True,
         )
         with open(json_file, "rb") as f_in, gzip.open(output_gz, "wb") as f_out:
@@ -154,6 +162,7 @@ def main() -> None:
 
     for pkg in packages:
         name: str = pkg["name"]
+        import_name: str = pkg.get("import_name", name)
         include_prereleases: bool = bool(pkg.get("include_prereleases", False))
         first_letter = name[0].lower()
         package_dir = MANIFESTS_ROOT / first_letter / name
@@ -195,7 +204,7 @@ def main() -> None:
             latest_path = package_dir / "latest.json"
             print(f"[{name}] Generating manifest for version {version} …")
             try:
-                generate_manifest(name, version, manifest_path)
+                generate_manifest(name, import_name, version, manifest_path)
             except subprocess.CalledProcessError as exc:
                 msg = (
                     f"[{name}] ERROR generating manifest for {version} "
@@ -243,6 +252,16 @@ def main() -> None:
     ]
     REPORT_FILE.write_text("\n".join(header + report_lines) + "\n", encoding="utf-8")
     print(f"\nReport written to {REPORT_FILE}")
+
+    # Surface per-package failures: a workflow run must not look green when
+    # one or more manifests failed to generate/commit. Emit GitHub Actions
+    # error annotations and exit non-zero so the failure is visible.
+    errors = [line for line in report_lines if "ERROR" in line]
+    if errors:
+        for line in errors:
+            print(f"::error::{line}")
+        print(f"\n{len(errors)} package version(s) failed — see annotations above.")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
