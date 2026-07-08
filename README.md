@@ -104,6 +104,53 @@ lcp validate manifests/python/r/requests/2.31.0.lcp.json.gz
 
 The manifest must pass schema validation without errors.
 
+### Verification & trust
+
+A green **Verify Manifests** check on your pull request replaces manual
+review — it is the registry's trust mechanism. For every added or changed
+manifest the workflow runs two sets of checks:
+
+**Hard gates** (always fail on mismatch):
+
+- gzip and JSON integrity, LCP schema validation with the pinned `lcp`;
+- path layout: `manifests/{lang}/{letter}/{slug}/{version}.lcp.json.gz`,
+  where `{letter}` is the slug's first character and `{slug}` is the
+  PEP 503-normalized **PyPI distribution name** (the manifest's internal
+  `library.name` is the *import* name and may differ, e.g.
+  `python-dateutil` vs `dateutil`);
+- the manifest's version and language must match the filename and folder;
+- `latest.json` must exist, point at an existing file, and match the
+  highest stable version present in the package folder.
+
+**Regeneration comparison**: CI installs the claimed `(package, version)`
+from PyPI into a fresh virtual environment, rescans it with the pinned
+`lcp`, and compares against the submission:
+
+- the symbol-ID sets may differ by at most **2% of their union**
+  (environment-dependent symbols: platform-conditional classes, optional
+  extras, import-time `__all__` computation);
+- a deterministic sample of up to 50 common symbols must match **exactly**
+  on kind and full structured signature — signature edits are never
+  tolerated.
+
+Packages that legitimately diverge more across environments can get a
+per-package allowance in
+[`.github/lcp/verify-overrides.yaml`](.github/lcp/verify-overrides.yaml);
+changes to that file weaken verification and always require maintainer
+review.
+
+The `lcp` version used for generation and verification is pinned to an
+exact commit in
+[`.github/lcp/requirements.txt`](.github/lcp/requirements.txt). The pin
+moves only together with a planned registry-wide regeneration, so every
+manifest in the registry is produced and checked by the same code.
+
+**Known limitations**: manifests are not cryptographically signed and
+carry no build attestation — trust derives from the CI check on the PR
+that introduced each file plus the repository's git history. Manifests
+are served from `raw.githubusercontent.com`; there is no separate CDN or
+API service.
+
 ### Guidelines
 
 - Only submit manifests for **publicly available, stable package versions**.

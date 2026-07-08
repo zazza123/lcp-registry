@@ -1,0 +1,83 @@
+name: Verify Manifests
+
+# Automated trust: a green check on this workflow replaces manual review of
+# manifest submissions.
+#
+# SECURITY MODEL — the `regenerate` job pip-installs the (package, version)
+# claimed by the PR from PyPI, which EXECUTES ARBITRARY CODE. Containment:
+#   * trigger is `pull_request` (never pull_request_target): fork PRs run
+#     with a read-only GITHUB_TOKEN and NO access to repository secrets;
+#   * workflow-level `permissions: contents: read`;
+#   * GitHub-hosted runners are ephemeral VMs, destroyed after each job;
+#   * network egress used: pypi.org + files.pythonhosted.org (package
+#     download), github.com (checkout + pinned lcp install).
+# Do not add secrets to this workflow. Do not change the trigger.
+
+on:
+  pull_request:
+    paths:
+      - 'manifests/**'
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      manifests: ${{ steps.diff.outputs.manifests }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: List added/changed manifest files
+        id: diff
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          FILES=$(git diff --name-only --diff-filter=AM \
+            "origin/$BASE_REF...HEAD" -- 'manifests/**/*.lcp.json.gz')
+          echo "$FILES"
+          echo "manifests=$(echo "$FILES" | jq -R -s -c 'split("\n") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
+
+  layout:
+    needs: detect
+    if: needs.detect.outputs.manifests != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned lcp + deps
+        run: pip install -r .github/lcp/requirements.txt
+      - name: Layout / schema / latest.json checks
+        env:
+          MANIFESTS: ${{ needs.detect.outputs.manifests }}
+        run: |
+          echo "$MANIFESTS" | jq -r '.[]' | xargs \
+            env PYTHONPATH=.github/lcp python .github/lcp/verify_layout.py
+
+  regenerate:
+    needs: detect
+    if: needs.detect.outputs.manifests != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        manifest: ${{ fromJSON(needs.detect.outputs.manifests) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pinned lcp + deps
+        run: pip install -r .github/lcp/requirements.txt
+      - name: Regenerate and compare (runs untrusted package code)
+        env:
+          # env-var indirection: a crafted filename must not reach the shell
+          # via ${{ }} substitution (command injection).
+          MANIFEST: ${{ matrix.manifest }}
+        run: |
+          PYTHONPATH=.github/lcp python .github/lcp/regen_compare.py "$MANIFEST"
