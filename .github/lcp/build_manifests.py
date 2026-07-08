@@ -58,9 +58,30 @@ from lcp.validator import validate_or_raise
 import sync_latest  # sibling module: latest.json policy lives there
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
-POPULATION_YAML = Path(__file__).resolve().parent / "population.yaml"
+PACKAGES_YAML = Path(__file__).resolve().parent / "packages.yaml"
 MANIFESTS_ROOT = REPO_ROOT / "manifests" / "python"
 SCAN_TIMEOUT = 600.0
+
+
+def load_packages() -> list[dict]:
+    """Return normalized package configs from packages.yaml.
+
+    Each entry: {name, import_name, include_prereleases, keep_versions} with
+    defaults import_name=name, include_prereleases=False, keep_versions=2.
+    """
+    config = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8"))
+    out: list[dict] = []
+    for entry in config["python"]:
+        name = entry["name"]
+        out.append(
+            {
+                "name": name,
+                "import_name": entry.get("import_name", name),
+                "include_prereleases": bool(entry.get("include_prereleases", False)),
+                "keep_versions": int(entry.get("keep_versions", 2)),
+            }
+        )
+    return out
 
 
 def plan_versions(
@@ -209,7 +230,7 @@ def main() -> None:
     ap.add_argument("--workers", type=int, default=2)
     args = ap.parse_args()
 
-    config = yaml.safe_load(POPULATION_YAML.read_text(encoding="utf-8"))
+    config = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8"))
     targets = {e["name"]: e.get("import") for e in config["python"]}
 
     jobs: list[tuple[str, str, str | None]] = []  # (dist, version, import)

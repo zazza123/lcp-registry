@@ -76,3 +76,40 @@ def test_plan_versions_ignores_unparseable_versions():
         include_prereleases=False,
     )
     assert got == ["1.1"]
+
+
+import build_manifests
+from build_manifests import load_packages
+
+
+def test_load_packages_applies_defaults(tmp_path, monkeypatch):
+    cfg = tmp_path / "packages.yaml"
+    cfg.write_text(
+        "python:\n"
+        "  - name: requests\n"
+        "  - name: pyyaml\n"
+        "    import_name: yaml\n"
+        "  - name: google-adk\n"
+        "    import_name: google.adk\n"
+        "    include_prereleases: true\n"
+        "    keep_versions: 3\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(build_manifests, "PACKAGES_YAML", cfg)
+    pkgs = {p["name"]: p for p in load_packages()}
+
+    assert pkgs["requests"] == {
+        "name": "requests", "import_name": "requests",
+        "include_prereleases": False, "keep_versions": 2,
+    }
+    assert pkgs["pyyaml"]["import_name"] == "yaml"
+    assert pkgs["google-adk"]["include_prereleases"] is True
+    assert pkgs["google-adk"]["keep_versions"] == 3
+
+
+def test_load_packages_reads_real_config():
+    pkgs = load_packages()
+    assert len(pkgs) == 102
+    names = {p["name"] for p in pkgs}
+    assert {"boto3", "polars", "google-adk", "azure-ai-contentunderstanding"} <= names
+    assert {p["name"]: p["import_name"] for p in pkgs}["pyyaml"] == "yaml"
