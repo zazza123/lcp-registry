@@ -76,18 +76,16 @@ jobs:
           PKG: ${{ matrix.name }}
         run: |
           set -euo pipefail
-          if git diff --quiet; then
-            echo "No changes for $PKG — nothing to do."
-            exit 0
-          fi
           BRANCH="manifest-bot/${PKG}"
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git checkout -b "$BRANCH"
           git add manifests/
-          git commit -m "ADD: python/${PKG} weekly manifest update
-
-          Automated weekly regeneration for ${PKG} via build_manifests.py."
+          if git diff --cached --quiet; then
+            echo "No changes for $PKG — nothing to do."
+            exit 0
+          fi
+          git checkout -b "$BRANCH"
+          git commit -m "ADD: python/${PKG} weekly manifest update" -m "Automated weekly regeneration for ${PKG} via build_manifests.py."
           git push --force-with-lease origin "$BRANCH"
           PR_URL=$(gh pr create \
             --base main --head "$BRANCH" \
