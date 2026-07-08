@@ -168,9 +168,41 @@ Additional languages will be added as LCP scanners become available.
 
 ## Automated Updates
 
-A weekly GitHub Actions workflow scans new versions of tracked packages from PyPI and opens a pull request automatically. Packages tracked by the automation are listed in [`.github/lcp/packages.yaml`](.github/lcp/packages.yaml).
+[`.github/lcp/packages.yaml`](.github/lcp/packages.yaml) is the single
+source of truth for tracked packages. The weekly workflow
+(`weekly-manifest-update.yml`) runs `build_manifests.py --plan` to find
+packages whose newest `keep_versions` (default 2) are not all on disk, then
+opens **one auto-merging PR per package**. Each PR is gated by
+`verify-manifests.yml` (regenerate-and-compare); green PRs merge and delete
+their branch automatically, so only failures remain open.
+
+Manifests must be generated in a CI-equivalent minimal venv
+(`requirements.txt` only) — see the warning in `build_manifests.py`.
 
 If you want a package added to the automated tracker instead of submitting manifests manually, open an issue using the **Request a new package** template.
+
+**One-time repository setup (required before enabling the weekly job):**
+
+1. Create a fine-grained PAT scoped to this repository with **Contents:
+   write** and **Pull requests: write**; save it as the repository secret
+   `MANIFEST_BOT_TOKEN`. (A PR opened with the default `GITHUB_TOKEN` will
+   not trigger `verify-manifests.yml`.)
+2. Enable **Settings → General → Allow auto-merge**.
+3. Add a **branch protection rule on `main`** requiring the single **`verify`**
+   status check (the aggregate gate job in `verify-manifests.yml`), so
+   auto-merge waits for green. Do not require pull-request approvals, or the
+   bot's PRs — which no human approves — can never auto-merge.
+
+**Initial backfill (one-off, maintainer-run):** after merging this change,
+most packages have one version on disk while `keep_versions` defaults to 2.
+Backfill the second version once via batch mode rather than the weekly
+firehose:
+
+```bash
+python3.12 -m venv popenv && popenv/bin/pip install -r .github/lcp/requirements.txt
+PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/build_manifests.py --all
+# review `git status`, then open PRs in reviewable batches
+```
 
 ## License
 
