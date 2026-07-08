@@ -5,4 +5,9 @@
 #     symbol_tolerance: 0.05      # fraction of the id-set union (default 0.02)
 #     skip_signature_ids:         # ids whose signature is env-dependent
 #       - "pkg.mod:func"
-{}
+
+google-adk:
+  # log_file_timestamp's default is datetime.now() evaluated at import
+  # time — it differs on every scan by construction.
+  skip_signature_ids:
+    - "google.adk.cli.utils.logs:log_to_tmp_folder"
