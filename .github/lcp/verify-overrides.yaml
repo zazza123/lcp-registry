@@ -11,3 +11,16 @@ google-adk:
   # time — it differs on every scan by construction.
   skip_signature_ids:
     - "google.adk.cli.utils.logs:log_to_tmp_folder"
+
+beautifulsoup4:
+  # AnnouncingParser inherits html.parser.HTMLParser.__init__, whose
+  # signature varies across CPython patch releases (the 'scripting'
+  # kwarg appeared in a 3.12.x patch).
+  skip_signature_ids:
+    - "bs4.diagnose:AnnouncingParser"
+
+tqdm:
+  # Optional UI submodules (tqdm.tk and friends) import only when the
+  # interpreter ships the matching extra (tkinter availability differs
+  # between Python builds), moving ~9% of the symbol set.
+  symbol_tolerance: 0.10
