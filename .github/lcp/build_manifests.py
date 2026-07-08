@@ -70,7 +70,13 @@ def load_packages() -> list[dict]:
     """Return normalized package configs from packages.yaml.
 
     Each entry: {name, import_name, include_prereleases, keep_versions} with
-    defaults import_name=name, include_prereleases=False, keep_versions=2.
+    defaults import_name=None, include_prereleases=False, keep_versions=2.
+
+    import_name is None when the config does not override it: that is the
+    signal for build_one to AUTO-DETECT the import name (e.g. typing-extensions
+    -> typing_extensions). Defaulting it to the dist name would disable
+    detection and break every package whose module name differs from its dist
+    name (hyphenated names are not even importable).
     """
     config = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8"))
     out: list[dict] = []
@@ -79,7 +85,7 @@ def load_packages() -> list[dict]:
         out.append(
             {
                 "name": name,
-                "import_name": entry.get("import_name", name),
+                "import_name": entry.get("import_name"),
                 "include_prereleases": bool(entry.get("include_prereleases", False)),
                 "keep_versions": int(entry.get("keep_versions", 2)),
             }
@@ -272,7 +278,9 @@ def main() -> None:
                 report.append(
                     {
                         "name": pkg["name"],
-                        "import_name": pkg["import_name"],
+                        # informational only (the build step re-resolves via
+                        # --only); show the override or fall back to the name.
+                        "import_name": pkg["import_name"] or pkg["name"],
                         "versions": versions,
                     }
                 )
