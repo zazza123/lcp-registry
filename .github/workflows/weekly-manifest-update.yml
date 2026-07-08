@@ -86,9 +86,17 @@ jobs:
           fi
           git checkout -b "$BRANCH"
           git commit -m "ADD: python/${PKG} weekly manifest update" -m "Automated weekly regeneration for ${PKG} via build_manifests.py."
-          git push --force-with-lease origin "$BRANCH"
-          PR_URL=$(gh pr create \
-            --base main --head "$BRANCH" \
-            --title "ADD: python/${PKG} weekly manifest update" \
-            --body "Automated weekly manifest update for \`${PKG}\`. Gated by verify-manifests.yml; auto-merges on green.")
-          gh pr merge --auto --squash --delete-branch "$PR_URL"
+          # Bot-owned branch: force-push so a leftover branch from a prior run
+          # (e.g. a manually closed PR) is overwritten cleanly instead of being
+          # rejected with "stale info". This makes re-runs idempotent.
+          git push --force origin "$BRANCH"
+          # Reuse an already-open PR for this branch if one exists (the
+          # force-push above re-triggers its verify run); otherwise open a new
+          # PR and enable auto-merge.
+          if [ -z "$(gh pr list --head "$BRANCH" --state open --json number --jq '.[].number')" ]; then
+            PR_URL=$(gh pr create \
+              --base main --head "$BRANCH" \
+              --title "ADD: python/${PKG} weekly manifest update" \
+              --body "Automated weekly manifest update for \`${PKG}\`. Gated by verify-manifests.yml; auto-merges on green.")
+            gh pr merge --auto --squash --delete-branch "$PR_URL"
+          fi
