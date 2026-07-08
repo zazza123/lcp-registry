@@ -11,12 +11,18 @@ name: Verify Manifests
 #   * GitHub-hosted runners are ephemeral VMs, destroyed after each job;
 #   * network egress used: pypi.org + files.pythonhosted.org (package
 #     download), github.com (checkout + pinned lcp install).
-# Do not add secrets to this workflow. Do not change the trigger.
+# Do not add secrets to this workflow. Do not weaken the trigger: it must stay
+# `pull_request` (never `pull_request_target`).
+#
+# The trigger has NO `paths` filter on purpose: the `verify` job below is the
+# single stable status check that branch protection requires, so it must report
+# on EVERY pull request (a required check that never runs blocks the PR). The
+# heavy `layout`/`regenerate` jobs stay gated on `detect` finding changed
+# manifests, so a PR that touches no manifests skips them and `verify` passes
+# cheaply — no untrusted package code runs.
 
 on:
   pull_request:
-    paths:
-      - 'manifests/**'
 
 permissions:
   contents: read
@@ -81,3 +87,35 @@ jobs:
           MANIFEST: ${{ matrix.manifest }}
         run: |
           PYTHONPATH=.github/lcp python .github/lcp/regen_compare.py "$MANIFEST"
+
+  # Single stable status check for branch protection. It always runs (no
+  # `if` guard, `if: always()` so it reports even when upstream jobs fail),
+  # and passes when the manifest jobs succeeded OR were skipped (a PR that
+  # changed no manifests). Require ONLY this check on `main` — the matrix
+  # `regenerate` checks have per-file names that change every PR and cannot be
+  # required by a fixed name.
+  verify:
+    needs: [detect, layout, regenerate]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Gate on manifest verification
+        env:
+          # trusted enum values (success/failure/skipped/cancelled), but routed
+          # through env for consistency with this repo's injection-safe style.
+          DETECT: ${{ needs.detect.result }}
+          LAYOUT: ${{ needs.layout.result }}
+          REGENERATE: ${{ needs.regenerate.result }}
+        run: |
+          echo "detect=$DETECT layout=$LAYOUT regenerate=$REGENERATE"
+          if [ "$DETECT" != 'success' ]; then
+            echo "::error::detect job did not succeed"
+            exit 1
+          fi
+          for result in "$LAYOUT" "$REGENERATE"; do
+            if [ "$result" != 'success' ] && [ "$result" != 'skipped' ]; then
+              echo "::error::manifest verification did not pass ($result)"
+              exit 1
+            fi
+          done
+          echo "verification gate passed"

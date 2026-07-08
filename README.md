@@ -188,8 +188,10 @@ If you want a package added to the automated tracker instead of submitting manif
    `MANIFEST_BOT_TOKEN`. (A PR opened with the default `GITHUB_TOKEN` will
    not trigger `verify-manifests.yml`.)
 2. Enable **Settings → General → Allow auto-merge**.
-3. Add a **branch protection rule on `main`** requiring the
-   `verify-manifests` checks, so auto-merge waits for green.
+3. Add a **branch protection rule on `main`** requiring the single **`verify`**
+   status check (the aggregate gate job in `verify-manifests.yml`), so
+   auto-merge waits for green. Do not require pull-request approvals, or the
+   bot's PRs — which no human approves — can never auto-merge.
 
 **Initial backfill (one-off, maintainer-run):** after merging this change,
 most packages have one version on disk while `keep_versions` defaults to 2.
