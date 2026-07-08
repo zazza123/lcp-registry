@@ -20,7 +20,11 @@ beautifulsoup4:
     - "bs4.diagnose:AnnouncingParser"
 
 tqdm:
-  # Optional UI submodules (tqdm.tk and friends) import only when the
-  # interpreter ships the matching extra (tkinter availability differs
-  # between Python builds), moving ~9% of the symbol set.
-  symbol_tolerance: 0.10
+  # Optional UI submodules (tqdm.tk, 44 ids) import only when the
+  # interpreter ships tkinter, which differs between Python builds:
+  # the published manifest (tk-less build) lacks them while CI's
+  # interpreter has them. Denominator shrank after the test-subpackage
+  # exclusion (lcp 638a2882), so the same 44-id delta is now ~14% of
+  # the union. A future regen from a tk-enabled build would include
+  # tqdm.tk and allow tightening this back.
+  symbol_tolerance: 0.15
