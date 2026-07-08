@@ -1,0 +1,8 @@
+# Per-package tolerance overrides for regen_compare.py.
+# Changing this file requires PR review — it weakens verification.
+#
+#   <slug>:
+#     symbol_tolerance: 0.05      # fraction of the id-set union (default 0.02)
+#     skip_signature_ids:         # ids whose signature is env-dependent
+#       - "pkg.mod:func"
+{}
