@@ -19,6 +19,14 @@ beautifulsoup4:
   skip_signature_ids:
     - "bs4.diagnose:AnnouncingParser"
 
+scipy:
+  # DOP853.__init__ has max_step=np.inf; np.inf is not JSON-representable, so
+  # the default serializes inconsistently between scans (absent vs null) and
+  # the signature comparison cannot match it. Symbol sets are identical
+  # (symmetric-diff 0), so this skips only the one non-deterministic signature.
+  skip_signature_ids:
+    - "scipy.integrate._ivp.rk:DOP853"
+
 tqdm:
   # Optional UI submodules (tqdm.tk, 44 ids) import only when the
   # interpreter ships tkinter, which differs between Python builds:
