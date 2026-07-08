@@ -98,8 +98,9 @@ def test_load_packages_applies_defaults(tmp_path, monkeypatch):
     monkeypatch.setattr(build_manifests, "PACKAGES_YAML", cfg)
     pkgs = {p["name"]: p for p in load_packages()}
 
+    # import_name is None when not overridden — the signal to auto-detect.
     assert pkgs["requests"] == {
-        "name": "requests", "import_name": "requests",
+        "name": "requests", "import_name": None,
         "include_prereleases": False, "keep_versions": 2,
     }
     assert pkgs["pyyaml"]["import_name"] == "yaml"
