@@ -219,6 +219,7 @@ __marimo__/
 
 # Others
 doc/
+docs/
 gitignore/
 output/
 .vscode/
