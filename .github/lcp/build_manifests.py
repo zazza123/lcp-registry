@@ -8,9 +8,12 @@ Reads packages.yaml, and for each target package:
   3. scans the import name with the checked-out lcp
      (lcp.subprocess_scan machinery — the venv does not need lcp),
   4. validates the document and writes
-     manifests/python/{letter}/{slug}/{version}.lcp.json.gz plus
-     latest.json (recomputed via sync_latest.compute_latest; a regen of
-     an old version never moves the pointer).
+     manifests/python/{letter}/{slug}/{version}.lcp.json.gz.
+
+After the thread pool drains, latest.json is recomputed once per package
+that had a successful build (sync_latest.compute_latest), single-threaded
+so concurrent same-package jobs (keep_versions > 1) cannot race on the
+pointer; a regen of an old version never moves it.
 
 Idempotent/resumable: existing manifest files are skipped unless --regen.
 Failures are reported per package and never abort the run — the final
@@ -169,8 +172,6 @@ def build_one(
     dist: str,
     version: str,
     import_override: str | None,
-    *,
-    include_prereleases: bool = False,
 ) -> str:
     slug = normalize_package_name(dist)
     pkg_dir = MANIFESTS_ROOT / slug[0] / slug
@@ -201,22 +202,29 @@ def build_one(
     validate_or_raise(doc)
     pkg_dir.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(gzip.compress(doc.to_json(indent=2).encode("utf-8")))
+    return (
+        f"{slug}=={version}: {len(doc.symbols)} symbols "
+        f"-> {out_path.relative_to(REPO_ROOT)}"
+    )
+
+
+def write_latest_json(pkg_dir: Path, *, include_prereleases: bool) -> None:
+    """Recompute latest.json for one package dir from the manifests on disk.
+
+    Single source of truth for the pointer, run single-threaded after all
+    builds finish so concurrent same-package jobs cannot race on it.
+    """
     latest = sync_latest.compute_latest(
         sync_latest.list_versions(pkg_dir), include_prereleases=include_prereleases
     )
     if latest:
         (pkg_dir / "latest.json").write_text(
             json.dumps(
-                {"version": latest, "manifest": f"{latest}.lcp.json.gz"},
-                indent=2,
+                {"version": latest, "manifest": f"{latest}.lcp.json.gz"}, indent=2
             )
             + "\n",
             encoding="utf-8",
         )
-    return (
-        f"{slug}=={version}: {len(doc.symbols)} symbols "
-        f"-> {out_path.relative_to(REPO_ROOT)}"
-    )
 
 
 def missing_versions_for(pkg: dict) -> list[str]:
@@ -314,22 +322,31 @@ def main() -> None:
                 )
 
     ok, failed = [], []
+    succeeded_dists: set[str] = set()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(
-                build_one, d, v, imp, include_prereleases=pre
-            ): (d, v)
-            for d, v, imp, pre in jobs
+            pool.submit(build_one, d, v, imp): (d, v)
+            for d, v, imp, _pre in jobs
         }
         for future in as_completed(futures):
             dist, version = futures[future]
             try:
                 msg = future.result()
                 ok.append(msg)
+                succeeded_dists.add(dist)
                 print(f"OK   {msg}")
             except Exception as exc:
                 failed.append(f"{dist}=={version}: {exc}")
                 print(f"FAIL {dist}=={version}: {exc}")
+
+    # Single-threaded post-pass: recompute latest.json once per package that
+    # had at least one successful job. Concurrent same-package build jobs
+    # (keep_versions > 1) can no longer race on the pointer this way.
+    for dist in sorted(succeeded_dists):
+        slug = normalize_package_name(dist)
+        pkg_dir = MANIFESTS_ROOT / slug[0] / slug
+        include_pre = packages.get(dist, {}).get("include_prereleases", False)
+        write_latest_json(pkg_dir, include_prereleases=include_pre)
 
     print(
         f"\n=== build report: {len(ok)} ok, {len(failed)} failed, "

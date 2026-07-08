@@ -113,3 +113,33 @@ def test_load_packages_reads_real_config():
     names = {p["name"] for p in pkgs}
     assert {"boto3", "polars", "google-adk", "azure-ai-contentunderstanding"} <= names
     assert {p["name"]: p["import_name"] for p in pkgs}["pyyaml"] == "yaml"
+
+
+from build_manifests import write_latest_json
+
+
+def test_write_latest_json_picks_max_stable(tmp_path):
+    for v in ["1.0.0", "1.2.0", "1.1.0"]:
+        (tmp_path / f"{v}.lcp.json.gz").write_bytes(b"")
+    write_latest_json(tmp_path, include_prereleases=False)
+    import json
+    data = json.loads((tmp_path / "latest.json").read_text())
+    assert data == {"version": "1.2.0", "manifest": "1.2.0.lcp.json.gz"}
+
+
+def test_write_latest_json_excludes_prerelease_by_default(tmp_path):
+    for v in ["1.0.0", "2.0.0rc1"]:
+        (tmp_path / f"{v}.lcp.json.gz").write_bytes(b"")
+    write_latest_json(tmp_path, include_prereleases=False)
+    import json
+    data = json.loads((tmp_path / "latest.json").read_text())
+    assert data["version"] == "1.0.0"
+
+
+def test_write_latest_json_includes_prerelease_when_enabled(tmp_path):
+    for v in ["1.0.0", "2.0.0rc1"]:
+        (tmp_path / f"{v}.lcp.json.gz").write_bytes(b"")
+    write_latest_json(tmp_path, include_prereleases=True)
+    import json
+    data = json.loads((tmp_path / "latest.json").read_text())
+    assert data["version"] == "2.0.0rc1"
