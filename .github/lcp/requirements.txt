@@ -1,7 +1,7 @@
 # lcp is pinned to an exact SDK commit: every manifest in this registry is
 # generated and verified with the SAME code. Bump ONLY together with a
 # planned registry-wide regeneration (see README "Verification & trust").
-lcp @ git+https://github.com/zazza123/lcp@98efe823fa8f232824c0c97785944627208eb629
+lcp @ git+https://github.com/zazza123/lcp@638a2882a2eee2652ce44fd1a597aa79dcdb5ae1
 packaging>=24.0
 pyyaml>=6.0
 requests>=2.32.0
