@@ -17,10 +17,20 @@ Failures are reported per package and never abort the run — the final
 report lists exactly what landed and what didn't (no silent gaps). Git is
 untouched: review `git status` afterwards, then commit.
 
-Usage (from the registry repo root, with an interpreter that has lcp):
-  PYTHONPATH=.github/lcp python .github/lcp/populate.py --all
-  PYTHONPATH=.github/lcp python .github/lcp/populate.py --only polars,six
-  PYTHONPATH=.github/lcp python .github/lcp/populate.py --regen google-adk
+IMPORTANT — run this with a MINIMAL venv built from requirements.txt
+(pinned lcp + deps), never a development environment: the scan child
+appends the host env's site-packages to the target venv's sys.path
+(lcp.subprocess_scan bootstrap), so extra host packages (pytest, rich,
+...) leak into the scan and make optional submodules importable locally
+that are not importable in CI — the regeneration comparison then fails
+on symbol-set differences. A requirements.txt venv leaks exactly the
+same dependency surface CI has.
+
+Usage (from the registry repo root):
+  python3.12 -m venv popenv && popenv/bin/pip install -r .github/lcp/requirements.txt
+  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/populate.py --all
+  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/populate.py --only polars,six
+  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/populate.py --regen google-adk
   ... --workers 4
 """
 
