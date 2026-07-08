@@ -128,6 +128,11 @@ def build_one(dist: str, version: str, import_override: str | None) -> str:
         doc = scan_package_subprocess(
             import_name, python=str(py), timeout=SCAN_TIMEOUT
         )
+    # The scanner resolves the version by import name, which fails for
+    # packages whose import name does not map to the distribution
+    # (pyyaml/yaml, pillow/PIL) and yields "0.0.0". We installed
+    # dist==version, so that IS the manifest's version — set it.
+    doc.manifest.library.version = version
     validate_or_raise(doc)
     pkg_dir.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(gzip.compress(doc.to_json(indent=2).encode("utf-8")))
@@ -176,7 +181,15 @@ def main() -> None:
                 continue
             for gz in found:
                 version = gz.name[: -len(".lcp.json.gz")]
-                jobs.append((dist, version, targets.get(dist)))
+                # The existing manifest knows its own import name — for
+                # namespace packages (azure.*, google.*) auto-detection
+                # would pick the shared namespace root instead.
+                try:
+                    old = json.loads(gzip.decompress(gz.read_bytes()))
+                    import_name = old["manifest"]["library"]["name"]
+                except (OSError, KeyError, json.JSONDecodeError, gzip.BadGzipFile):
+                    import_name = targets.get(dist)
+                jobs.append((dist, version, import_name))
     else:
         names = (
             list(targets)
