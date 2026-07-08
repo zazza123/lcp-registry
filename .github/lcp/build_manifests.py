@@ -28,9 +28,10 @@ same dependency surface CI has.
 
 Usage (from the registry repo root):
   python3.12 -m venv popenv && popenv/bin/pip install -r .github/lcp/requirements.txt
-  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/populate.py --all
-  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/populate.py --only polars,six
-  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/populate.py --regen google-adk
+  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/build_manifests.py --all
+  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/build_manifests.py --only polars,six
+  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/build_manifests.py --regen google-adk
+  PYTHONPATH=.github/lcp popenv/bin/python .github/lcp/build_manifests.py --plan
   ... --workers 4
 """
 
