@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Batch pre-population of the LCP registry (run LOCALLY by a maintainer).
 
-Reads population.yaml, and for each target package:
+Reads packages.yaml, and for each target package:
   1. resolves the newest stable version from PyPI (or reuses the versions
      already on disk in --regen mode),
   2. creates a throwaway venv and pip-installs dist==version,
@@ -115,25 +115,21 @@ def plan_versions(
     return [v_str for _, v_str in newest if v_str not in on_disk_set]
 
 
-def newest_stable(dist: str) -> str:
-    """Return the newest non-prerelease, non-yanked version of *dist*."""
+def fetch_pypi_versions(dist: str) -> list[str]:
+    """All non-yanked release versions of *dist* that have at least one file.
+
+    Prerelease filtering and newest-N selection happen in plan_versions.
+    """
     with urllib.request.urlopen(
         f"https://pypi.org/pypi/{dist}/json", timeout=30
     ) as resp:
         releases = json.load(resp).get("releases", {})
-    versions = []
+    out: list[str] = []
     for v_str, files in releases.items():
         if not files or all(f.get("yanked") for f in files):
             continue
-        try:
-            v = Version(v_str)
-        except InvalidVersion:
-            continue
-        if not v.is_prerelease:
-            versions.append((v, v_str))
-    if not versions:
-        raise RuntimeError(f"{dist}: no stable release on PyPI")
-    return max(versions)[1]
+        out.append(v_str)
+    return out
 
 
 def detect_import_name(py: Path, dist: str) -> str:
@@ -169,7 +165,13 @@ def detect_import_name(py: Path, dist: str) -> str:
     return hits[0]
 
 
-def build_one(dist: str, version: str, import_override: str | None) -> str:
+def build_one(
+    dist: str,
+    version: str,
+    import_override: str | None,
+    *,
+    include_prereleases: bool = False,
+) -> str:
     slug = normalize_package_name(dist)
     pkg_dir = MANIFESTS_ROOT / slug[0] / slug
     out_path = pkg_dir / f"{version}.lcp.json.gz"
@@ -200,7 +202,7 @@ def build_one(dist: str, version: str, import_override: str | None) -> str:
     pkg_dir.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(gzip.compress(doc.to_json(indent=2).encode("utf-8")))
     latest = sync_latest.compute_latest(
-        sync_latest.list_versions(pkg_dir), include_prereleases=False
+        sync_latest.list_versions(pkg_dir), include_prereleases=include_prereleases
     )
     if latest:
         (pkg_dir / "latest.json").write_text(
@@ -217,65 +219,107 @@ def build_one(dist: str, version: str, import_override: str | None) -> str:
     )
 
 
+def missing_versions_for(pkg: dict) -> list[str]:
+    """Missing versions to generate for one normalized package config."""
+    slug = normalize_package_name(pkg["name"])
+    pkg_dir = MANIFESTS_ROOT / slug[0] / slug
+    on_disk = sync_latest.list_versions(pkg_dir) if pkg_dir.exists() else []
+    available = fetch_pypi_versions(pkg["name"])
+    return plan_versions(
+        available,
+        on_disk,
+        keep_versions=pkg["keep_versions"],
+        include_prereleases=pkg["include_prereleases"],
+    )
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument("--all", action="store_true")
     group.add_argument("--only", type=str, help="comma-separated dist names")
     group.add_argument(
-        "--regen",
-        type=str,
+        "--regen", type=str,
         help="comma-separated dist names: regenerate ALL versions on disk",
+    )
+    group.add_argument(
+        "--plan", action="store_true",
+        help="print JSON of packages with missing versions; no installs",
     )
     ap.add_argument("--workers", type=int, default=2)
     args = ap.parse_args()
 
-    config = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8"))
-    targets = {e["name"]: e.get("import") for e in config["python"]}
+    packages = {p["name"]: p for p in load_packages()}
 
-    jobs: list[tuple[str, str, str | None]] = []  # (dist, version, import)
+    # --plan: report only, no venvs/installs.
+    if args.plan:
+        report = []
+        for pkg in packages.values():
+            try:
+                versions = missing_versions_for(pkg)
+            except Exception as exc:  # network / PyPI errors: surface, skip
+                print(f"::warning::plan {pkg['name']}: {exc}", file=sys.stderr)
+                continue
+            if versions:
+                report.append(
+                    {
+                        "name": pkg["name"],
+                        "import_name": pkg["import_name"],
+                        "versions": versions,
+                    }
+                )
+        print(json.dumps(report))
+        return
+
+    jobs: list[tuple[str, str, str | None, bool]] = []  # dist, version, import, pre
     if args.regen:
         for dist in (d.strip() for d in args.regen.split(",")):
             slug = normalize_package_name(dist)
             pkg_dir = MANIFESTS_ROOT / slug[0] / slug
             found = sorted(pkg_dir.glob("*.lcp.json.gz"))
+            include_pre = packages.get(dist, {}).get("include_prereleases", False)
             if not found:
                 print(f"FAIL {dist}: no manifests on disk to regenerate")
                 continue
             for gz in found:
                 version = gz.name[: -len(".lcp.json.gz")]
-                # The existing manifest knows its own import name — for
-                # namespace packages (azure.*, google.*) auto-detection
-                # would pick the shared namespace root instead.
                 try:
                     old = json.loads(gzip.decompress(gz.read_bytes()))
                     import_name = old["manifest"]["library"]["name"]
                 except (OSError, KeyError, json.JSONDecodeError, gzip.BadGzipFile):
-                    import_name = targets.get(dist)
-                jobs.append((dist, version, import_name))
+                    import_name = packages.get(dist, {}).get("import_name")
+                jobs.append((dist, version, import_name, include_pre))
     else:
         names = (
-            list(targets)
+            list(packages)
             if args.all
             else [n.strip() for n in args.only.split(",")]
         )
         for dist in names:
-            slug = normalize_package_name(dist)
+            pkg = packages.get(dist)
+            if pkg is None:
+                print(f"FAIL {dist}: not in packages.yaml")
+                continue
             try:
-                version = newest_stable(dist)
+                versions = missing_versions_for(pkg)
             except Exception as exc:
                 print(f"FAIL {dist}: {exc}")
                 continue
-            out = MANIFESTS_ROOT / slug[0] / slug / f"{version}.lcp.json.gz"
-            if out.exists():
-                print(f"SKIP {dist}=={version} (already on disk)")
+            if not versions:
+                print(f"SKIP {dist} (up-to-date on disk)")
                 continue
-            jobs.append((dist, version, targets.get(dist)))
+            for version in versions:
+                jobs.append(
+                    (dist, version, pkg["import_name"], pkg["include_prereleases"])
+                )
 
     ok, failed = [], []
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(build_one, d, v, imp): (d, v) for d, v, imp in jobs
+            pool.submit(
+                build_one, d, v, imp, include_prereleases=pre
+            ): (d, v)
+            for d, v, imp, pre in jobs
         }
         for future in as_completed(futures):
             dist, version = futures[future]
@@ -288,7 +332,7 @@ def main() -> None:
                 print(f"FAIL {dist}=={version}: {exc}")
 
     print(
-        f"\n=== populate report: {len(ok)} ok, {len(failed)} failed, "
+        f"\n=== build report: {len(ok)} ok, {len(failed)} failed, "
         f"{len(jobs)} attempted ==="
     )
     for line in failed:
