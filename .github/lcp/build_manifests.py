@@ -63,6 +63,37 @@ MANIFESTS_ROOT = REPO_ROOT / "manifests" / "python"
 SCAN_TIMEOUT = 600.0
 
 
+def plan_versions(
+    available: list[str],
+    on_disk: list[str],
+    *,
+    keep_versions: int,
+    include_prereleases: bool,
+) -> list[str]:
+    """Return the versions to generate: the *keep_versions* newest versions
+    (under the prerelease policy) that are not already on disk.
+
+    Additive — it never proposes deletions. Result is sorted oldest→newest
+    so generation order is deterministic. With *include_prereleases* False and
+    no stable release available, returns [] (nothing stable to track).
+    """
+    parsed: list[tuple[Version, str]] = []
+    for v_str in available:
+        try:
+            parsed.append((Version(v_str), v_str))
+        except InvalidVersion:
+            continue
+    pool = (
+        parsed
+        if include_prereleases
+        else [pair for pair in parsed if not pair[0].is_prerelease]
+    )
+    pool.sort(key=lambda pair: pair[0])
+    newest = pool[-keep_versions:] if keep_versions > 0 else []
+    on_disk_set = set(on_disk)
+    return [v_str for _, v_str in newest if v_str not in on_disk_set]
+
+
 def newest_stable(dist: str) -> str:
     """Return the newest non-prerelease, non-yanked version of *dist*."""
     with urllib.request.urlopen(
