@@ -10,6 +10,11 @@
 #   include_prereleases  track prereleases too (default: false)
 #   keep_versions        ensure the N newest versions exist on disk, additive,
 #                        never prunes older manifests (default: 2)
+#   env                  extra environment variables applied while installing
+#                        and scanning this package (install/build knobs, e.g.
+#                        CMAKE_POLICY_VERSION_MINIMUM for old sdist builds).
+#                        Used by both build_manifests.py and regen_compare.py
+#                        so generation and CI verification match (default: {})
 python:
   - name: boto3
   - name: urllib3
@@ -136,14 +141,19 @@ python:
     keep_versions: 1
   - name: hamana
     keep_versions: 1
-  # NOTE: pocket-coffea (0.9.13) and pixeltable (0.6.6) are Phase-8 benchmark
-  # targets but are NOT tracked here: their manifests cannot be regenerated in
-  # CI. pocket-coffea needs awkward 1.10.5 built from sdist (no cp312 wheels),
-  # which fails under the pip build-isolation CMake (>=4) without
-  # CMAKE_POLICY_VERSION_MINIMUM=3.5, unsettable from a manifest PR. pixeltable
-  # requires pgvector>=0.4.0 (unbounded), so pip pulls pgvector 0.5.0 and the
-  # package fails to import (HalfVector). Neither is fixable via
-  # verify-overrides.yaml (which only tolerates symbol/signature diffs).
+  # NOTE: pixeltable (0.6.6), a Phase-8 benchmark target, is NOT tracked here:
+  # its manifest cannot be regenerated in CI. It requires pgvector>=0.4.0
+  # (unbounded), so pip pulls pgvector 0.5.0 and the package fails to import
+  # (HalfVector moved out of pgvector.sqlalchemy). Fixing it needs a
+  # per-package `constraints` mechanism (pgvector<0.5), which env cannot
+  # express — see the tracking issue.
+  - name: pocket-coffea
+    keep_versions: 1
+    # awkward (<2, no cp312 wheels) builds from sdist; its old
+    # cmake_minimum_required is rejected by the pip build-isolation CMake >= 4
+    # unless this policy floor is set.
+    env:
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
   - name: narwhals
     keep_versions: 1
   - name: griffe

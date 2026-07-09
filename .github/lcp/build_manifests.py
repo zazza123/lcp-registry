@@ -41,11 +41,14 @@ Usage (from the registry repo root):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import gzip
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.request
 import venv
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -69,14 +72,21 @@ SCAN_TIMEOUT = 600.0
 def load_packages() -> list[dict]:
     """Return normalized package configs from packages.yaml.
 
-    Each entry: {name, import_name, include_prereleases, keep_versions} with
-    defaults import_name=None, include_prereleases=False, keep_versions=2.
+    Each entry: {name, import_name, include_prereleases, keep_versions, env}
+    with defaults import_name=None, include_prereleases=False, keep_versions=2,
+    env={}.
 
     import_name is None when the config does not override it: that is the
     signal for build_one to AUTO-DETECT the import name (e.g. typing-extensions
     -> typing_extensions). Defaulting it to the dist name would disable
     detection and break every package whose module name differs from its dist
     name (hyphenated names are not even importable).
+
+    env holds extra environment variables applied while installing and
+    scanning THAT package (build knobs like CMAKE_POLICY_VERSION_MINIMUM for
+    sdist builds). Keys and values are coerced to str — YAML happily parses
+    "3.5" as a float otherwise. regen_compare.py applies the same variables in
+    CI so local generation and CI regeneration see an identical environment.
     """
     config = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8"))
     out: list[dict] = []
@@ -88,6 +98,9 @@ def load_packages() -> list[dict]:
                 "import_name": entry.get("import_name"),
                 "include_prereleases": bool(entry.get("include_prereleases", False)),
                 "keep_versions": int(entry.get("keep_versions", 2)),
+                "env": {
+                    str(k): str(v) for k, v in (entry.get("env") or {}).items()
+                },
             }
         )
     return out
@@ -141,6 +154,39 @@ def fetch_pypi_versions(dist: str) -> list[str]:
     return out
 
 
+# scan_package_subprocess offers no env parameter — its child inherits this
+# process's os.environ — so per-package variables reach the scan by patching
+# os.environ around the call. The lock keeps concurrent patches from
+# clobbering each other; env-less builds running in parallel inside the
+# window inherit the extra variables too, which is acceptable for the
+# intended use (install/build knobs that do not change import behaviour).
+_ENV_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _process_env(overrides: dict[str, str]):
+    """Temporarily apply *overrides* to os.environ (no-op when empty)."""
+    if not overrides:
+        yield
+        return
+    with _ENV_LOCK:
+        saved = {key: os.environ.get(key) for key in overrides}
+        os.environ.update(overrides)
+        try:
+            yield
+        finally:
+            for key, value in saved.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
+def _subprocess_env(overrides: dict[str, str]) -> dict[str, str] | None:
+    """env= value for subprocess.run: os.environ + overrides, None when empty."""
+    return {**os.environ, **overrides} if overrides else None
+
+
 def detect_import_name(py: Path, dist: str) -> str:
     """Map *dist* to its top-level import name inside the venv.
 
@@ -178,7 +224,9 @@ def build_one(
     dist: str,
     version: str,
     import_override: str | None,
+    pkg_env: dict[str, str] | None = None,
 ) -> str:
+    pkg_env = pkg_env or {}
     slug = normalize_package_name(dist)
     pkg_dir = MANIFESTS_ROOT / slug[0] / slug
     out_path = pkg_dir / f"{version}.lcp.json.gz"
@@ -191,15 +239,17 @@ def build_one(
             capture_output=True,
             text=True,
             timeout=1800,
+            env=_subprocess_env(pkg_env),
         )
         if install.returncode != 0:
             raise RuntimeError(
                 f"pip install failed: {install.stderr.strip()[-500:]}"
             )
         import_name = import_override or detect_import_name(py, dist)
-        doc = scan_package_subprocess(
-            import_name, python=str(py), timeout=SCAN_TIMEOUT
-        )
+        with _process_env(pkg_env):
+            doc = scan_package_subprocess(
+                import_name, python=str(py), timeout=SCAN_TIMEOUT
+            )
     # The scanner resolves the version by import name, which fails for
     # packages whose import name does not map to the distribution
     # (pyyaml/yaml, pillow/PIL) and yields "0.0.0". We installed
@@ -287,13 +337,14 @@ def main() -> None:
         print(json.dumps(report))
         return
 
-    jobs: list[tuple[str, str, str | None, bool]] = []  # dist, version, import, pre
+    # dist, version, import, env
+    jobs: list[tuple[str, str, str | None, dict[str, str]]] = []
     if args.regen:
         for dist in (d.strip() for d in args.regen.split(",")):
             slug = normalize_package_name(dist)
             pkg_dir = MANIFESTS_ROOT / slug[0] / slug
             found = sorted(pkg_dir.glob("*.lcp.json.gz"))
-            include_pre = packages.get(dist, {}).get("include_prereleases", False)
+            pkg_env = packages.get(dist, {}).get("env", {})
             if not found:
                 print(f"FAIL {dist}: no manifests on disk to regenerate")
                 continue
@@ -304,7 +355,7 @@ def main() -> None:
                     import_name = old["manifest"]["library"]["name"]
                 except (OSError, KeyError, json.JSONDecodeError, gzip.BadGzipFile):
                     import_name = packages.get(dist, {}).get("import_name")
-                jobs.append((dist, version, import_name, include_pre))
+                jobs.append((dist, version, import_name, pkg_env))
     else:
         names = (
             list(packages)
@@ -326,15 +377,15 @@ def main() -> None:
                 continue
             for version in versions:
                 jobs.append(
-                    (dist, version, pkg["import_name"], pkg["include_prereleases"])
+                    (dist, version, pkg["import_name"], pkg["env"])
                 )
 
     ok, failed = [], []
     succeeded_dists: set[str] = set()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(build_one, d, v, imp): (d, v)
-            for d, v, imp, _pre in jobs
+            pool.submit(build_one, d, v, imp, env): (d, v)
+            for d, v, imp, env in jobs
         }
         for future in as_completed(futures):
             dist, version = futures[future]

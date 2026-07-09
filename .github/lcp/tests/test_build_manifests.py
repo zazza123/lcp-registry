@@ -101,19 +101,41 @@ def test_load_packages_applies_defaults(tmp_path, monkeypatch):
     # import_name is None when not overridden — the signal to auto-detect.
     assert pkgs["requests"] == {
         "name": "requests", "import_name": None,
-        "include_prereleases": False, "keep_versions": 2,
+        "include_prereleases": False, "keep_versions": 2, "env": {},
     }
     assert pkgs["pyyaml"]["import_name"] == "yaml"
     assert pkgs["google-adk"]["include_prereleases"] is True
     assert pkgs["google-adk"]["keep_versions"] == 3
 
 
+def test_load_packages_coerces_env_to_str(tmp_path, monkeypatch):
+    # YAML parses an unquoted 3.5 as a float; env values must reach
+    # subprocess/os.environ as strings either way.
+    cfg = tmp_path / "packages.yaml"
+    cfg.write_text(
+        "python:\n"
+        "  - name: pocket-coffea\n"
+        "    env:\n"
+        "      CMAKE_POLICY_VERSION_MINIMUM: 3.5\n"
+        "      SOME_FLAG: \"1\"\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(build_manifests, "PACKAGES_YAML", cfg)
+    (pkg,) = load_packages()
+    assert pkg["env"] == {
+        "CMAKE_POLICY_VERSION_MINIMUM": "3.5", "SOME_FLAG": "1",
+    }
+
+
 def test_load_packages_reads_real_config():
     pkgs = load_packages()
-    assert len(pkgs) == 102
+    assert len(pkgs) == 110
     names = {p["name"] for p in pkgs}
     assert {"boto3", "polars", "google-adk", "azure-ai-contentunderstanding"} <= names
     assert {p["name"]: p["import_name"] for p in pkgs}["pyyaml"] == "yaml"
+    envs = {p["name"]: p["env"] for p in pkgs}
+    assert envs["pocket-coffea"] == {"CMAKE_POLICY_VERSION_MINIMUM": "3.5"}
+    assert envs["boto3"] == {}
 
 
 from build_manifests import write_latest_json
@@ -144,3 +166,102 @@ def test_write_latest_json_includes_prerelease_when_enabled(tmp_path):
     import json
     data = json.loads((tmp_path / "latest.json").read_text())
     assert data["version"] == "2.0.0rc1"
+
+
+import os
+
+import regen_compare
+
+
+def test_process_env_applies_and_restores(monkeypatch):
+    monkeypatch.setenv("LCP_TEST_KEEP", "original")
+    monkeypatch.delenv("LCP_TEST_NEW", raising=False)
+    with build_manifests._process_env(
+        {"LCP_TEST_KEEP": "override", "LCP_TEST_NEW": "value"}
+    ):
+        assert os.environ["LCP_TEST_KEEP"] == "override"
+        assert os.environ["LCP_TEST_NEW"] == "value"
+    assert os.environ["LCP_TEST_KEEP"] == "original"
+    assert "LCP_TEST_NEW" not in os.environ
+
+
+class _StubDoc:
+    """Minimal LCPDocument stand-in for build_one plumbing tests."""
+
+    def __init__(self):
+        self.manifest = type(
+            "M", (), {"library": type("L", (), {"version": None})()}
+        )()
+        self.symbols = {}
+
+    def to_json(self, indent=2):
+        return "{}"
+
+
+def _plumbed_build_one(tmp_path, monkeypatch, pkg_env):
+    """Run build_one with venv/pip/scan faked; return what each step saw."""
+    seen = {}
+
+    def fake_run(cmd, **kwargs):
+        seen["install_env"] = kwargs.get("env")
+        return type("R", (), {"returncode": 0, "stderr": ""})()
+
+    def fake_scan(import_name, python=None, timeout=None):
+        seen["scan_env"] = os.environ.get("CMAKE_POLICY_VERSION_MINIMUM")
+        return _StubDoc()
+
+    monkeypatch.setattr(build_manifests.venv, "create", lambda *a, **k: None)
+    monkeypatch.setattr(build_manifests.subprocess, "run", fake_run)
+    monkeypatch.setattr(build_manifests, "scan_package_subprocess", fake_scan)
+    monkeypatch.setattr(build_manifests, "validate_or_raise", lambda doc: None)
+    monkeypatch.setattr(build_manifests, "MANIFESTS_ROOT", tmp_path)
+    monkeypatch.setattr(build_manifests, "REPO_ROOT", tmp_path)
+    monkeypatch.delenv("CMAKE_POLICY_VERSION_MINIMUM", raising=False)
+
+    seen["msg"] = build_manifests.build_one(
+        "pocket-coffea", "0.9.13", "pocket_coffea", pkg_env
+    )
+    return seen
+
+
+def test_build_one_applies_pkg_env_to_install_and_scan(tmp_path, monkeypatch):
+    env = {"CMAKE_POLICY_VERSION_MINIMUM": "3.5"}
+    seen = _plumbed_build_one(tmp_path, monkeypatch, env)
+    # pip install ran with the override merged onto the process env ...
+    assert seen["install_env"]["CMAKE_POLICY_VERSION_MINIMUM"] == "3.5"
+    # ... the scan subprocess saw it via os.environ inheritance ...
+    assert seen["scan_env"] == "3.5"
+    # ... and it never leaked past the build.
+    assert "CMAKE_POLICY_VERSION_MINIMUM" not in os.environ
+    assert "pocket-coffea==0.9.13" in seen["msg"]
+
+
+def test_build_one_without_env_inherits_process_environment(tmp_path, monkeypatch):
+    seen = _plumbed_build_one(tmp_path, monkeypatch, None)
+    # env=None means subprocess.run inherits the parent environment untouched.
+    assert seen["install_env"] is None
+    assert seen["scan_env"] is None
+
+
+def test_regen_compare_load_package_env(tmp_path, monkeypatch):
+    cfg = tmp_path / "packages.yaml"
+    cfg.write_text(
+        "python:\n"
+        "  - name: boto3\n"
+        "  - name: pocket-coffea\n"
+        "    env:\n"
+        "      CMAKE_POLICY_VERSION_MINIMUM: 3.5\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(regen_compare, "PACKAGES_YAML", cfg)
+    assert regen_compare.load_package_env("pocket-coffea") == {
+        "CMAKE_POLICY_VERSION_MINIMUM": "3.5"
+    }
+    assert regen_compare.load_package_env("boto3") == {}
+    assert regen_compare.load_package_env("unknown-slug") == {}
+
+
+def test_regen_compare_load_package_env_reads_real_config():
+    assert regen_compare.load_package_env("pocket-coffea") == {
+        "CMAKE_POLICY_VERSION_MINIMUM": "3.5"
+    }
