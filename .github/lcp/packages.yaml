@@ -128,3 +128,35 @@ python:
     import_name: azure.ai.contentunderstanding
   - name: google-adk
     import_name: google.adk
+  # Phase-8 benchmark targets: tracked at exactly the version pinned by the
+  # benchmark harness (all currently the PyPI latest). keep_versions: 1 so the
+  # registry serves the single pinned version and latest.json points at it; the
+  # weekly updater maintains only the newest version for these entries.
+  - name: cyhole
+    keep_versions: 1
+  - name: hamana
+    keep_versions: 1
+  # NOTE: pocket-coffea (0.9.13) and pixeltable (0.6.6) are Phase-8 benchmark
+  # targets but are NOT tracked here: their manifests cannot be regenerated in
+  # CI. pocket-coffea needs awkward 1.10.5 built from sdist (no cp312 wheels),
+  # which fails under the pip build-isolation CMake (>=4) without
+  # CMAKE_POLICY_VERSION_MINIMUM=3.5, unsettable from a manifest PR. pixeltable
+  # requires pgvector>=0.4.0 (unbounded), so pip pulls pgvector 0.5.0 and the
+  # package fails to import (HalfVector). Neither is fixable via
+  # verify-overrides.yaml (which only tolerates symbol/signature diffs).
+  - name: narwhals
+    keep_versions: 1
+  - name: griffe
+    # The 'griffe' dist is a wrapper that installs the 'griffelib' dist, which
+    # provides the importable 'griffe' module; auto-detect can't bridge that.
+    import_name: griffe
+    keep_versions: 1
+  - name: cyclopts
+    keep_versions: 1
+  - name: fastmcp
+    # The 'fastmcp' dist installs 'fastmcp-slim', which provides the importable
+    # 'fastmcp' module; auto-detect can't bridge that.
+    import_name: fastmcp
+    keep_versions: 1
+  - name: flask
+    keep_versions: 1
