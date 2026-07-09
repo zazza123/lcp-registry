@@ -19,6 +19,12 @@ compares against the submitted manifest:
 
 pip install resolves the *distribution* by the folder slug; the rescan
 imports the manifest's library.name (the import name).
+
+Packages that declare `env` in packages.yaml (install/build knobs like
+CMAKE_POLICY_VERSION_MINIMUM) get those variables applied process-wide
+before install + rescan: this process handles exactly one manifest, so the
+whole run — pip install and the scan child, which inherits os.environ —
+sees the same environment build_manifests.py used at generation time.
 """
 
 from __future__ import annotations
@@ -26,6 +32,7 @@ from __future__ import annotations
 import gzip
 import json
 import math
+import os
 import re
 import subprocess
 import sys
@@ -36,10 +43,12 @@ from pathlib import Path
 import yaml
 
 from lcp.models import LCPDocument, Symbol
+from lcp.naming import normalize_package_name
 from lcp.subprocess_scan import scan_package_subprocess
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 OVERRIDES_FILE = Path(__file__).resolve().parent / "verify-overrides.yaml"
+PACKAGES_YAML = Path(__file__).resolve().parent / "packages.yaml"
 PATH_RE = re.compile(
     r"^manifests/(?P<lang>[a-z0-9-]+)/(?P<letter>[a-z0-9])/"
     r"(?P<slug>[a-z0-9][a-z0-9-]*)/(?P<version>[^/]+)\.lcp\.json\.gz$"
@@ -56,6 +65,19 @@ def load_overrides(slug: str) -> tuple[float, set[str]]:
         float(entry.get("symbol_tolerance", DEFAULT_TOLERANCE)),
         set(entry.get("skip_signature_ids", [])),
     )
+
+
+def load_package_env(slug: str) -> dict[str, str]:
+    """Env overrides declared for *slug* in packages.yaml ({} when absent).
+
+    Keys/values are coerced to str, mirroring build_manifests.load_packages,
+    so a YAML `3.5` and a quoted "3.5" behave identically.
+    """
+    data = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8")) or {}
+    for entry in data.get("python", []):
+        if normalize_package_name(entry["name"]) == slug:
+            return {str(k): str(v) for k, v in (entry.get("env") or {}).items()}
+    return {}
 
 
 def signature_projection(symbol: Symbol) -> str:
@@ -82,6 +104,12 @@ def main() -> None:
     )
     import_name = submitted.manifest.library.name
     tolerance, skip_signatures = load_overrides(slug)
+    pkg_env = load_package_env(slug)
+    if pkg_env:
+        # One manifest per process: safe to apply process-wide, and the scan
+        # child inherits os.environ, so install + rescan both see it.
+        print(f"Applying per-package env from packages.yaml: {sorted(pkg_env)}")
+        os.environ.update(pkg_env)
 
     with tempfile.TemporaryDirectory() as tmp:
         env_dir = Path(tmp) / "venv"
