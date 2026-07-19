@@ -31,6 +31,11 @@ pgvector<0.5, for metadata that under-pins a dependency) get them written to
 a temp file passed as `pip -c`, exactly as build_manifests.py does, so the
 reinstall resolves the same dependency closure the manifest was scanned
 against.
+
+Packages that declare `install_with` in packages.yaml (extra distributions
+for metadata that omits a dependency the package imports anyway, e.g.
+soupsieve -> bs4) get those installed alongside, again matching generation:
+without them the target is not importable and the rescan cannot run.
 """
 
 from __future__ import annotations
@@ -104,6 +109,18 @@ def load_package_constraints(slug: str) -> list[str]:
     return [str(c) for c in (entry.get("constraints") or [])]
 
 
+def load_package_install_with(slug: str) -> list[str]:
+    """Extra distributions to install alongside *slug* ([] when absent).
+
+    For packages whose metadata omits a dependency they import anyway
+    (soupsieve imports bs4 but declares nothing, dodging a metadata cycle with
+    beautifulsoup4): without them the reinstall is not importable and the
+    rescan fails outright, so CI must co-install exactly what generation did.
+    """
+    entry = load_package_entry(slug)
+    return [str(r) for r in (entry.get("install_with") or [])]
+
+
 def signature_projection(symbol: Symbol) -> str:
     """Canonical JSON of a symbol's structured signatures, for comparison."""
     return json.dumps(
@@ -135,6 +152,12 @@ def main() -> None:
         print(f"Applying per-package env from packages.yaml: {sorted(pkg_env)}")
         os.environ.update(pkg_env)
     pkg_constraints = load_package_constraints(slug)
+    pkg_install_with = load_package_install_with(slug)
+    if pkg_install_with:
+        print(
+            "Installing alongside, per packages.yaml: "
+            f"{pkg_install_with}"
+        )
 
     with tempfile.TemporaryDirectory() as tmp:
         env_dir = Path(tmp) / "venv"
@@ -156,7 +179,7 @@ def main() -> None:
         install = subprocess.run(
             [
                 str(py), "-m", "pip", "install", "--quiet",
-                *constraint_args, f"{slug}=={version}",
+                *constraint_args, f"{slug}=={version}", *pkg_install_with,
             ],
             capture_output=True,
             text=True,
