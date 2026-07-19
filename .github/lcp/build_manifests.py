@@ -72,9 +72,9 @@ SCAN_TIMEOUT = 600.0
 def load_packages() -> list[dict]:
     """Return normalized package configs from packages.yaml.
 
-    Each entry: {name, import_name, include_prereleases, keep_versions, env}
-    with defaults import_name=None, include_prereleases=False, keep_versions=2,
-    env={}.
+    Each entry: {name, import_name, include_prereleases, keep_versions, env,
+    constraints} with defaults import_name=None, include_prereleases=False,
+    keep_versions=2, env={}, constraints=[].
 
     import_name is None when the config does not override it: that is the
     signal for build_one to AUTO-DETECT the import name (e.g. typing-extensions
@@ -87,6 +87,12 @@ def load_packages() -> list[dict]:
     sdist builds). Keys and values are coerced to str — YAML happily parses
     "3.5" as a float otherwise. regen_compare.py applies the same variables in
     CI so local generation and CI regeneration see an identical environment.
+
+    constraints holds pip constraint specifiers (e.g. "pgvector<0.5") for
+    packages whose metadata under-pins a dependency badly enough to break the
+    install or import. They are written to a temp file passed as `pip -c`;
+    regen_compare.py applies the same list so both installs resolve the same
+    dependency closure.
     """
     config = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8"))
     out: list[dict] = []
@@ -101,6 +107,9 @@ def load_packages() -> list[dict]:
                 "env": {
                     str(k): str(v) for k, v in (entry.get("env") or {}).items()
                 },
+                "constraints": [
+                    str(c) for c in (entry.get("constraints") or [])
+                ],
             }
         )
     return out
@@ -187,6 +196,23 @@ def _subprocess_env(overrides: dict[str, str]) -> dict[str, str] | None:
     return {**os.environ, **overrides} if overrides else None
 
 
+def pip_constraint_args(tmp_dir: Path, constraints: list[str]) -> list[str]:
+    """Write *constraints* under *tmp_dir* and return the pip flags ([] if none).
+
+    pip takes constraints only as a file, so this materializes one next to the
+    throwaway venv; it dies with the enclosing TemporaryDirectory.
+
+    regen_compare.py deliberately keeps its own copy of these few lines rather
+    than importing this module — same trade-off as load_package_env — so the
+    verify job stays a leaf script. A test asserts both read the same list.
+    """
+    if not constraints:
+        return []
+    path = Path(tmp_dir) / "constraints.txt"
+    path.write_text("\n".join(constraints) + "\n", encoding="utf-8")
+    return ["-c", str(path)]
+
+
 def detect_import_name(py: Path, dist: str) -> str:
     """Map *dist* to its top-level import name inside the venv.
 
@@ -225,6 +251,7 @@ def build_one(
     version: str,
     import_override: str | None,
     pkg_env: dict[str, str] | None = None,
+    constraints: list[str] | None = None,
 ) -> str:
     pkg_env = pkg_env or {}
     slug = normalize_package_name(dist)
@@ -234,8 +261,12 @@ def build_one(
         env_dir = Path(tmp) / "venv"
         venv.create(env_dir, with_pip=True)
         py = env_dir / "bin" / "python"
+        constraint_args = pip_constraint_args(Path(tmp), constraints or [])
         install = subprocess.run(
-            [str(py), "-m", "pip", "install", "--quiet", f"{dist}=={version}"],
+            [
+                str(py), "-m", "pip", "install", "--quiet",
+                *constraint_args, f"{dist}=={version}",
+            ],
             capture_output=True,
             text=True,
             timeout=1800,
@@ -337,14 +368,15 @@ def main() -> None:
         print(json.dumps(report))
         return
 
-    # dist, version, import, env
-    jobs: list[tuple[str, str, str | None, dict[str, str]]] = []
+    # dist, version, import, env, constraints
+    jobs: list[tuple[str, str, str | None, dict[str, str], list[str]]] = []
     if args.regen:
         for dist in (d.strip() for d in args.regen.split(",")):
             slug = normalize_package_name(dist)
             pkg_dir = MANIFESTS_ROOT / slug[0] / slug
             found = sorted(pkg_dir.glob("*.lcp.json.gz"))
             pkg_env = packages.get(dist, {}).get("env", {})
+            pkg_constraints = packages.get(dist, {}).get("constraints", [])
             if not found:
                 print(f"FAIL {dist}: no manifests on disk to regenerate")
                 continue
@@ -355,7 +387,9 @@ def main() -> None:
                     import_name = old["manifest"]["library"]["name"]
                 except (OSError, KeyError, json.JSONDecodeError, gzip.BadGzipFile):
                     import_name = packages.get(dist, {}).get("import_name")
-                jobs.append((dist, version, import_name, pkg_env))
+                jobs.append(
+                    (dist, version, import_name, pkg_env, pkg_constraints)
+                )
     else:
         names = (
             list(packages)
@@ -377,15 +411,18 @@ def main() -> None:
                 continue
             for version in versions:
                 jobs.append(
-                    (dist, version, pkg["import_name"], pkg["env"])
+                    (
+                        dist, version, pkg["import_name"],
+                        pkg["env"], pkg["constraints"],
+                    )
                 )
 
     ok, failed = [], []
     succeeded_dists: set[str] = set()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(build_one, d, v, imp, env): (d, v)
-            for d, v, imp, env in jobs
+            pool.submit(build_one, d, v, imp, env, cons): (d, v)
+            for d, v, imp, env, cons in jobs
         }
         for future in as_completed(futures):
             dist, version = futures[future]

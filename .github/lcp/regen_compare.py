@@ -25,6 +25,12 @@ CMAKE_POLICY_VERSION_MINIMUM) get those variables applied process-wide
 before install + rescan: this process handles exactly one manifest, so the
 whole run — pip install and the scan child, which inherits os.environ —
 sees the same environment build_manifests.py used at generation time.
+
+Packages that declare `constraints` in packages.yaml (pip specifiers like
+pgvector<0.5, for metadata that under-pins a dependency) get them written to
+a temp file passed as `pip -c`, exactly as build_manifests.py does, so the
+reinstall resolves the same dependency closure the manifest was scanned
+against.
 """
 
 from __future__ import annotations
@@ -67,17 +73,35 @@ def load_overrides(slug: str) -> tuple[float, set[str]]:
     )
 
 
+def load_package_entry(slug: str) -> dict:
+    """The packages.yaml entry for *slug* ({} when it is not tracked)."""
+    data = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8")) or {}
+    for entry in data.get("python", []):
+        if normalize_package_name(entry["name"]) == slug:
+            return entry
+    return {}
+
+
 def load_package_env(slug: str) -> dict[str, str]:
     """Env overrides declared for *slug* in packages.yaml ({} when absent).
 
     Keys/values are coerced to str, mirroring build_manifests.load_packages,
     so a YAML `3.5` and a quoted "3.5" behave identically.
     """
-    data = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8")) or {}
-    for entry in data.get("python", []):
-        if normalize_package_name(entry["name"]) == slug:
-            return {str(k): str(v) for k, v in (entry.get("env") or {}).items()}
-    return {}
+    entry = load_package_entry(slug)
+    return {str(k): str(v) for k, v in (entry.get("env") or {}).items()}
+
+
+def load_package_constraints(slug: str) -> list[str]:
+    """pip constraints declared for *slug* in packages.yaml ([] when absent).
+
+    Applied to the reinstall below so CI resolves the same dependency closure
+    build_manifests.py did at generation time — without them a package whose
+    metadata under-pins a dependency regenerates against different code (or
+    fails to import outright) and the comparison is meaningless.
+    """
+    entry = load_package_entry(slug)
+    return [str(c) for c in (entry.get("constraints") or [])]
 
 
 def signature_projection(symbol: Symbol) -> str:
@@ -110,14 +134,30 @@ def main() -> None:
         # child inherits os.environ, so install + rescan both see it.
         print(f"Applying per-package env from packages.yaml: {sorted(pkg_env)}")
         os.environ.update(pkg_env)
+    pkg_constraints = load_package_constraints(slug)
 
     with tempfile.TemporaryDirectory() as tmp:
         env_dir = Path(tmp) / "venv"
         print(f"Creating venv and installing {slug}=={version} ...")
         venv.create(env_dir, with_pip=True)
         py = env_dir / "bin" / "python"
+        constraint_args: list[str] = []
+        if pkg_constraints:
+            # pip takes constraints only as a file; it dies with *tmp*.
+            print(
+                "Applying per-package constraints from packages.yaml: "
+                f"{pkg_constraints}"
+            )
+            constraint_file = Path(tmp) / "constraints.txt"
+            constraint_file.write_text(
+                "\n".join(pkg_constraints) + "\n", encoding="utf-8"
+            )
+            constraint_args = ["-c", str(constraint_file)]
         install = subprocess.run(
-            [str(py), "-m", "pip", "install", "--quiet", f"{slug}=={version}"],
+            [
+                str(py), "-m", "pip", "install", "--quiet",
+                *constraint_args, f"{slug}=={version}",
+            ],
             capture_output=True,
             text=True,
         )

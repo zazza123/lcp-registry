@@ -15,6 +15,13 @@
 #                        CMAKE_POLICY_VERSION_MINIMUM for old sdist builds).
 #                        Used by both build_manifests.py and regen_compare.py
 #                        so generation and CI verification match (default: {})
+#   constraints          pip constraint specifiers (e.g. "pgvector<0.5") passed
+#                        as `pip -c` when installing this package, for metadata
+#                        that under-pins a dependency badly enough to break the
+#                        install or import. Also applied by regen_compare.py so
+#                        both resolve the same closure. These change the
+#                        manifest's dependency closure — justify each entry in
+#                        a comment, as in verify-overrides.yaml (default: [])
 python:
   - name: boto3
   - name: urllib3
@@ -141,12 +148,15 @@ python:
     keep_versions: 1
   - name: hamana
     keep_versions: 1
-  # NOTE: pixeltable (0.6.6), a Phase-8 benchmark target, is NOT tracked here:
-  # its manifest cannot be regenerated in CI. It requires pgvector>=0.4.0
-  # (unbounded), so pip pulls pgvector 0.5.0 and the package fails to import
-  # (HalfVector moved out of pgvector.sqlalchemy). Fixing it needs a
-  # per-package `constraints` mechanism (pgvector<0.5), which env cannot
-  # express — see the tracking issue.
+  - name: pixeltable
+    # keep_versions 2 covers 0.6.6 (the Phase-8 benchmark pin) and 0.6.7.
+    keep_versions: 2
+    # Both declare pgvector>=0.4.0 with no upper bound, but pgvector 0.5.0
+    # moved HalfVector out of pgvector.sqlalchemy, so an unconstrained install
+    # resolves to 0.5.0 and pixeltable fails to import. Drop this once a
+    # tracked release pins pgvector itself.
+    constraints:
+      - "pgvector<0.5"
   - name: pocket-coffea
     keep_versions: 1
     # awkward (<2, no cp312 wheels) builds from sdist; its old

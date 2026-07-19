@@ -5,6 +5,8 @@ no venv, no installs). Run from the repo root with:
     devenv/bin/pip install -r .github/lcp/requirements-dev.txt
     PYTHONPATH=.github/lcp devenv/bin/python -m pytest .github/lcp/tests -v
 """
+from pathlib import Path
+
 import build_manifests
 
 from build_manifests import plan_versions
@@ -102,6 +104,7 @@ def test_load_packages_applies_defaults(tmp_path, monkeypatch):
     assert pkgs["requests"] == {
         "name": "requests", "import_name": None,
         "include_prereleases": False, "keep_versions": 2, "env": {},
+        "constraints": [],
     }
     assert pkgs["pyyaml"]["import_name"] == "yaml"
     assert pkgs["google-adk"]["include_prereleases"] is True
@@ -129,7 +132,7 @@ def test_load_packages_coerces_env_to_str(tmp_path, monkeypatch):
 
 def test_load_packages_reads_real_config():
     pkgs = load_packages()
-    assert len(pkgs) == 110
+    assert len(pkgs) == 111
     names = {p["name"] for p in pkgs}
     assert {"boto3", "polars", "google-adk", "azure-ai-contentunderstanding"} <= names
     assert {p["name"]: p["import_name"] for p in pkgs}["pyyaml"] == "yaml"
@@ -198,12 +201,19 @@ class _StubDoc:
         return "{}"
 
 
-def _plumbed_build_one(tmp_path, monkeypatch, pkg_env):
+def _plumbed_build_one(tmp_path, monkeypatch, pkg_env, constraints=None):
     """Run build_one with venv/pip/scan faked; return what each step saw."""
     seen = {}
 
     def fake_run(cmd, **kwargs):
         seen["install_env"] = kwargs.get("env")
+        seen["install_cmd"] = list(cmd)
+        if "-c" in cmd:
+            # The file lives in build_one's TemporaryDirectory — read it now,
+            # it is gone by the time build_one returns.
+            seen["constraints_file"] = Path(
+                cmd[cmd.index("-c") + 1]
+            ).read_text(encoding="utf-8")
         return type("R", (), {"returncode": 0, "stderr": ""})()
 
     def fake_scan(import_name, python=None, timeout=None):
@@ -219,7 +229,7 @@ def _plumbed_build_one(tmp_path, monkeypatch, pkg_env):
     monkeypatch.delenv("CMAKE_POLICY_VERSION_MINIMUM", raising=False)
 
     seen["msg"] = build_manifests.build_one(
-        "pocket-coffea", "0.9.13", "pocket_coffea", pkg_env
+        "pocket-coffea", "0.9.13", "pocket_coffea", pkg_env, constraints
     )
     return seen
 
@@ -265,3 +275,70 @@ def test_regen_compare_load_package_env_reads_real_config():
     assert regen_compare.load_package_env("pocket-coffea") == {
         "CMAKE_POLICY_VERSION_MINIMUM": "3.5"
     }
+
+
+from lcp.naming import normalize_package_name
+
+
+def test_load_packages_normalizes_constraints():
+    packages = {p["name"]: p for p in build_manifests.load_packages()}
+    assert packages["pixeltable"]["constraints"] == ["pgvector<0.5"]
+    # Packages that declare none get [], not None.
+    assert packages["boto3"]["constraints"] == []
+
+
+def test_pip_constraint_args_writes_file(tmp_path):
+    args = build_manifests.pip_constraint_args(
+        tmp_path, ["pgvector<0.5", "numpy<3"]
+    )
+    assert args[0] == "-c"
+    assert Path(args[1]).read_text(encoding="utf-8") == "pgvector<0.5\nnumpy<3\n"
+
+
+def test_pip_constraint_args_empty_is_no_flags(tmp_path):
+    assert build_manifests.pip_constraint_args(tmp_path, []) == []
+    assert not list(tmp_path.iterdir())  # no stray file written
+
+
+def test_build_one_passes_constraints_to_pip(tmp_path, monkeypatch):
+    seen = _plumbed_build_one(
+        tmp_path, monkeypatch, None, constraints=["pgvector<0.5"]
+    )
+    cmd = seen["install_cmd"]
+    assert "-c" in cmd
+    assert seen["constraints_file"] == "pgvector<0.5\n"
+    # The constraint flag precedes the requirement, and the requirement stands.
+    assert cmd.index("-c") < cmd.index("pocket-coffea==0.9.13")
+
+
+def test_build_one_without_constraints_passes_no_flag(tmp_path, monkeypatch):
+    seen = _plumbed_build_one(tmp_path, monkeypatch, None)
+    assert "-c" not in seen["install_cmd"]
+
+
+def test_regen_compare_load_package_constraints(tmp_path, monkeypatch):
+    cfg = tmp_path / "packages.yaml"
+    cfg.write_text(
+        "python:\n"
+        "  - name: boto3\n"
+        "  - name: pixeltable\n"
+        "    constraints:\n"
+        "      - \"pgvector<0.5\"\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(regen_compare, "PACKAGES_YAML", cfg)
+    assert regen_compare.load_package_constraints("pixeltable") == [
+        "pgvector<0.5"
+    ]
+    assert regen_compare.load_package_constraints("boto3") == []
+    assert regen_compare.load_package_constraints("unknown-slug") == []
+
+
+def test_regen_compare_constraints_match_build_manifests():
+    """Both consumers must read the same list, or CI installs a different
+    dependency closure than generation did and the comparison is meaningless.
+    """
+    packages = {p["name"]: p for p in build_manifests.load_packages()}
+    for name, pkg in packages.items():
+        slug = normalize_package_name(name)
+        assert regen_compare.load_package_constraints(slug) == pkg["constraints"]
