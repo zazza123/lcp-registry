@@ -22,6 +22,14 @@
 #                        both resolve the same closure. These change the
 #                        manifest's dependency closure — justify each entry in
 #                        a comment, as in verify-overrides.yaml (default: [])
+#   install_with         extra distributions installed alongside this package,
+#                        for metadata that omits a dependency the package
+#                        imports anyway (soupsieve imports bs4 unconditionally
+#                        but declares nothing, avoiding a metadata cycle with
+#                        beautifulsoup4). Without them the target is not
+#                        importable and the scan cannot run. Applied by both
+#                        build_manifests.py and regen_compare.py. Unpinned —
+#                        pin via constraints if it matters (default: [])
 python:
   - name: boto3
   - name: urllib3
@@ -130,6 +138,13 @@ python:
   - name: sqlalchemy
   - name: huggingface-hub
   - name: soupsieve
+    # soupsieve/css_match.py does an unconditional `import bs4`, but soupsieve
+    # declares no dependencies at all — beautifulsoup4 depends on soupsieve, so
+    # declaring bs4 would close a metadata cycle. A standalone install is
+    # therefore not importable and the scan fails; co-install bs4, which pulls
+    # no pin of its own (it requires soupsieve>1.2, so our pin survives).
+    install_with:
+      - beautifulsoup4
   - name: regex
   - name: tomli
   - name: opentelemetry-exporter-otlp-proto-http

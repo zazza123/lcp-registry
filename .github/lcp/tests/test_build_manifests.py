@@ -104,7 +104,7 @@ def test_load_packages_applies_defaults(tmp_path, monkeypatch):
     assert pkgs["requests"] == {
         "name": "requests", "import_name": None,
         "include_prereleases": False, "keep_versions": 2, "env": {},
-        "constraints": [],
+        "constraints": [], "install_with": [],
     }
     assert pkgs["pyyaml"]["import_name"] == "yaml"
     assert pkgs["google-adk"]["include_prereleases"] is True
@@ -201,7 +201,9 @@ class _StubDoc:
         return "{}"
 
 
-def _plumbed_build_one(tmp_path, monkeypatch, pkg_env, constraints=None):
+def _plumbed_build_one(
+    tmp_path, monkeypatch, pkg_env, constraints=None, install_with=None
+):
     """Run build_one with venv/pip/scan faked; return what each step saw."""
     seen = {}
 
@@ -229,7 +231,8 @@ def _plumbed_build_one(tmp_path, monkeypatch, pkg_env, constraints=None):
     monkeypatch.delenv("CMAKE_POLICY_VERSION_MINIMUM", raising=False)
 
     seen["msg"] = build_manifests.build_one(
-        "pocket-coffea", "0.9.13", "pocket_coffea", pkg_env, constraints
+        "pocket-coffea", "0.9.13", "pocket_coffea", pkg_env, constraints,
+        install_with,
     )
     return seen
 
@@ -342,3 +345,54 @@ def test_regen_compare_constraints_match_build_manifests():
     for name, pkg in packages.items():
         slug = normalize_package_name(name)
         assert regen_compare.load_package_constraints(slug) == pkg["constraints"]
+
+
+def test_load_packages_normalizes_install_with():
+    packages = {p["name"]: p for p in build_manifests.load_packages()}
+    assert packages["soupsieve"]["install_with"] == ["beautifulsoup4"]
+    assert packages["boto3"]["install_with"] == []
+
+
+def test_build_one_appends_install_with_after_the_target(tmp_path, monkeypatch):
+    seen = _plumbed_build_one(
+        tmp_path, monkeypatch, None, install_with=["beautifulsoup4"]
+    )
+    cmd = seen["install_cmd"]
+    # The pinned target must precede the extras, so the resolver sees the pin
+    # rather than resolving the package fresh as a dependency of the extra.
+    assert cmd[-2:] == ["pocket-coffea==0.9.13", "beautifulsoup4"]
+
+
+def test_build_one_without_install_with_installs_only_target(tmp_path, monkeypatch):
+    seen = _plumbed_build_one(tmp_path, monkeypatch, None)
+    assert seen["install_cmd"][-1] == "pocket-coffea==0.9.13"
+
+
+def test_regen_compare_load_package_install_with(tmp_path, monkeypatch):
+    cfg = tmp_path / "packages.yaml"
+    cfg.write_text(
+        "python:\n"
+        "  - name: boto3\n"
+        "  - name: soupsieve\n"
+        "    install_with:\n"
+        "      - beautifulsoup4\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(regen_compare, "PACKAGES_YAML", cfg)
+    assert regen_compare.load_package_install_with("soupsieve") == [
+        "beautifulsoup4"
+    ]
+    assert regen_compare.load_package_install_with("boto3") == []
+    assert regen_compare.load_package_install_with("unknown-slug") == []
+
+
+def test_regen_compare_install_with_matches_build_manifests():
+    """CI must co-install exactly what generation did, or the rescan imports a
+    different environment — or fails to import at all.
+    """
+    packages = {p["name"]: p for p in build_manifests.load_packages()}
+    for name, pkg in packages.items():
+        slug = normalize_package_name(name)
+        assert (
+            regen_compare.load_package_install_with(slug) == pkg["install_with"]
+        )

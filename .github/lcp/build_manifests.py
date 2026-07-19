@@ -53,6 +53,7 @@ import urllib.request
 import venv
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 from packaging.version import InvalidVersion, Version
@@ -73,8 +74,9 @@ def load_packages() -> list[dict]:
     """Return normalized package configs from packages.yaml.
 
     Each entry: {name, import_name, include_prereleases, keep_versions, env,
-    constraints} with defaults import_name=None, include_prereleases=False,
-    keep_versions=2, env={}, constraints=[].
+    constraints, install_with} with defaults import_name=None,
+    include_prereleases=False, keep_versions=2, env={}, constraints=[],
+    install_with=[].
 
     import_name is None when the config does not override it: that is the
     signal for build_one to AUTO-DETECT the import name (e.g. typing-extensions
@@ -93,6 +95,13 @@ def load_packages() -> list[dict]:
     install or import. They are written to a temp file passed as `pip -c`;
     regen_compare.py applies the same list so both installs resolve the same
     dependency closure.
+
+    install_with holds extra distributions installed alongside the package, for
+    metadata that omits a dependency the package imports anyway (soupsieve
+    imports bs4 unconditionally but declares nothing, to avoid a metadata cycle
+    with beautifulsoup4). Without them the target is not importable and the
+    scan cannot run at all. They are unpinned — pin via constraints if a
+    specific version ever matters.
     """
     config = yaml.safe_load(PACKAGES_YAML.read_text(encoding="utf-8"))
     out: list[dict] = []
@@ -109,6 +118,9 @@ def load_packages() -> list[dict]:
                 },
                 "constraints": [
                     str(c) for c in (entry.get("constraints") or [])
+                ],
+                "install_with": [
+                    str(r) for r in (entry.get("install_with") or [])
                 ],
             }
         )
@@ -246,12 +258,29 @@ def detect_import_name(py: Path, dist: str) -> str:
     return hits[0]
 
 
+class BuildJob(NamedTuple):
+    """One (package, version) unit of work — the argument list for build_one.
+
+    Named rather than a bare tuple: the per-package overrides are all
+    collections with no distinguishing type, so positional mistakes between
+    env, constraints and install_with would pass silently.
+    """
+
+    dist: str
+    version: str
+    import_override: str | None
+    pkg_env: dict[str, str]
+    constraints: list[str]
+    install_with: list[str]
+
+
 def build_one(
     dist: str,
     version: str,
     import_override: str | None,
     pkg_env: dict[str, str] | None = None,
     constraints: list[str] | None = None,
+    install_with: list[str] | None = None,
 ) -> str:
     pkg_env = pkg_env or {}
     slug = normalize_package_name(dist)
@@ -265,7 +294,7 @@ def build_one(
         install = subprocess.run(
             [
                 str(py), "-m", "pip", "install", "--quiet",
-                *constraint_args, f"{dist}=={version}",
+                *constraint_args, f"{dist}=={version}", *(install_with or []),
             ],
             capture_output=True,
             text=True,
@@ -368,15 +397,13 @@ def main() -> None:
         print(json.dumps(report))
         return
 
-    # dist, version, import, env, constraints
-    jobs: list[tuple[str, str, str | None, dict[str, str], list[str]]] = []
+    jobs: list[BuildJob] = []
     if args.regen:
         for dist in (d.strip() for d in args.regen.split(",")):
             slug = normalize_package_name(dist)
             pkg_dir = MANIFESTS_ROOT / slug[0] / slug
             found = sorted(pkg_dir.glob("*.lcp.json.gz"))
-            pkg_env = packages.get(dist, {}).get("env", {})
-            pkg_constraints = packages.get(dist, {}).get("constraints", [])
+            pkg = packages.get(dist, {})
             if not found:
                 print(f"FAIL {dist}: no manifests on disk to regenerate")
                 continue
@@ -386,9 +413,13 @@ def main() -> None:
                     old = json.loads(gzip.decompress(gz.read_bytes()))
                     import_name = old["manifest"]["library"]["name"]
                 except (OSError, KeyError, json.JSONDecodeError, gzip.BadGzipFile):
-                    import_name = packages.get(dist, {}).get("import_name")
+                    import_name = pkg.get("import_name")
                 jobs.append(
-                    (dist, version, import_name, pkg_env, pkg_constraints)
+                    BuildJob(
+                        dist, version, import_name,
+                        pkg.get("env", {}), pkg.get("constraints", []),
+                        pkg.get("install_with", []),
+                    )
                 )
     else:
         names = (
@@ -411,9 +442,9 @@ def main() -> None:
                 continue
             for version in versions:
                 jobs.append(
-                    (
+                    BuildJob(
                         dist, version, pkg["import_name"],
-                        pkg["env"], pkg["constraints"],
+                        pkg["env"], pkg["constraints"], pkg["install_with"],
                     )
                 )
 
@@ -421,8 +452,8 @@ def main() -> None:
     succeeded_dists: set[str] = set()
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         futures = {
-            pool.submit(build_one, d, v, imp, env, cons): (d, v)
-            for d, v, imp, env, cons in jobs
+            pool.submit(build_one, *job): (job.dist, job.version)
+            for job in jobs
         }
         for future in as_completed(futures):
             dist, version = futures[future]
