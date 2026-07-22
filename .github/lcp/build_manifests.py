@@ -287,6 +287,29 @@ def detect_import_name(py: Path, dist: str) -> str:
     return hits[0]
 
 
+SITE_PACKAGES_MARKER = "site-packages/"
+
+
+def relativize_source_paths(doc) -> None:
+    """Rewrite detailed_index source paths to be relative to site-packages.
+
+    lcp 2.0.0 records each symbol's absolute source path in
+    detailed_index[*].implementation.path. Generated in a throwaway venv, that
+    path embeds a random temp directory, which makes manifests non-deterministic
+    and machine-specific. Keep only the package-relative tail (everything after
+    the last 'site-packages/') so regeneration is byte-stable and the committed
+    path stays meaningful (e.g. 'iniconfig/__init__.py'). Paths without the
+    marker (unusual install layouts) are left untouched.
+    """
+    for entry in (getattr(doc, "detailed_index", None) or {}).values():
+        impl = getattr(entry, "implementation", None)
+        if impl is None or not getattr(impl, "path", None):
+            continue
+        idx = impl.path.rfind(SITE_PACKAGES_MARKER)
+        if idx != -1:
+            impl.path = impl.path[idx + len(SITE_PACKAGES_MARKER):]
+
+
 class BuildJob(NamedTuple):
     """One (package, version) unit of work — the argument list for build_one.
 
@@ -338,9 +361,11 @@ def build_one(
             )
         import_name = import_override or detect_import_name(py, dist)
         with _process_env(pkg_env):
+            # lcp 2.0.0 wraps the document in a ScanResult (document +
+            # diagnostics); we only need the document.
             doc = scan_package_subprocess(
                 import_name, python=str(py), timeout=SCAN_TIMEOUT
-            )
+            ).document
     # The scanner resolves the version by import name, which fails for
     # packages whose import name does not map to the distribution
     # (pyyaml/yaml, pillow/PIL) and yields "0.0.0". We installed
@@ -352,6 +377,9 @@ def build_one(
     # was resolvable (handled by the caller passing upload_date=None).
     if upload_date is not None and doc.manifest.generation is not None:
         doc.manifest.generation.date = datetime.fromisoformat(upload_date)
+    # lcp 2.0.0's detailed_index carries absolute source paths from the
+    # throwaway venv; make them package-relative so output is deterministic.
+    relativize_source_paths(doc)
     validate_or_raise(doc)
     pkg_dir.mkdir(parents=True, exist_ok=True)
     # mtime=0: gzip embeds the current time in its header by default, which

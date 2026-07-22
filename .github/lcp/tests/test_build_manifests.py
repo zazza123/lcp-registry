@@ -226,8 +226,10 @@ def _plumbed_build_one(
 
     def fake_scan(import_name, python=None, timeout=None):
         seen["scan_env"] = os.environ.get("CMAKE_POLICY_VERSION_MINIMUM")
-        seen["doc"] = _StubDoc()
-        return seen["doc"]
+        doc = _StubDoc()
+        seen["doc"] = doc
+        # lcp 2.0.0 returns a ScanResult wrapping the document.
+        return type("ScanResult", (), {"document": doc})()
 
     monkeypatch.setattr(build_manifests.venv, "create", lambda *a, **k: None)
     monkeypatch.setattr(build_manifests.subprocess, "run", fake_run)
@@ -459,3 +461,30 @@ def test_build_one_writes_gzip_with_zeroed_mtime(tmp_path, monkeypatch):
     # Bytes 4..8 are the gzip MTIME header; mtime=0 zeroes them so identical
     # content always serializes identically.
     assert data[4:8] == b"\x00\x00\x00\x00"
+
+
+def _doc_with_path(path):
+    impl = type("A", (), {"path": path})()
+    entry = type("E", (), {"implementation": impl})()
+    doc = type("D", (), {"detailed_index": {"pkg:Sym": entry}})()
+    return doc, impl
+
+
+def test_relativize_source_paths_strips_to_site_packages():
+    doc, impl = _doc_with_path(
+        "/var/folders/x/T/lcp-pop-iniconfig-ab12/venv/lib/python3.12/"
+        "site-packages/iniconfig/__init__.py"
+    )
+    build_manifests.relativize_source_paths(doc)
+    assert impl.path == "iniconfig/__init__.py"
+
+
+def test_relativize_source_paths_leaves_non_site_packages_untouched():
+    doc, impl = _doc_with_path("src/iniconfig/__init__.py")
+    build_manifests.relativize_source_paths(doc)
+    assert impl.path == "src/iniconfig/__init__.py"
+
+
+def test_relativize_source_paths_handles_missing_index():
+    doc = type("D", (), {"detailed_index": None})()
+    build_manifests.relativize_source_paths(doc)  # no attribute error
