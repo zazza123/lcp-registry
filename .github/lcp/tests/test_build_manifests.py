@@ -193,7 +193,12 @@ class _StubDoc:
 
     def __init__(self):
         self.manifest = type(
-            "M", (), {"library": type("L", (), {"version": None})()}
+            "M",
+            (),
+            {
+                "library": type("L", (), {"version": None})(),
+                "generation": type("G", (), {"date": None})(),
+            },
         )()
         self.symbols = {}
 
@@ -202,7 +207,8 @@ class _StubDoc:
 
 
 def _plumbed_build_one(
-    tmp_path, monkeypatch, pkg_env, constraints=None, install_with=None
+    tmp_path, monkeypatch, pkg_env, constraints=None, install_with=None,
+    upload_date=None,
 ):
     """Run build_one with venv/pip/scan faked; return what each step saw."""
     seen = {}
@@ -220,7 +226,10 @@ def _plumbed_build_one(
 
     def fake_scan(import_name, python=None, timeout=None):
         seen["scan_env"] = os.environ.get("CMAKE_POLICY_VERSION_MINIMUM")
-        return _StubDoc()
+        doc = _StubDoc()
+        seen["doc"] = doc
+        # lcp 2.0.0 returns a ScanResult wrapping the document.
+        return type("ScanResult", (), {"document": doc})()
 
     monkeypatch.setattr(build_manifests.venv, "create", lambda *a, **k: None)
     monkeypatch.setattr(build_manifests.subprocess, "run", fake_run)
@@ -232,7 +241,7 @@ def _plumbed_build_one(
 
     seen["msg"] = build_manifests.build_one(
         "pocket-coffea", "0.9.13", "pocket_coffea", pkg_env, constraints,
-        install_with,
+        install_with, upload_date,
     )
     return seen
 
@@ -396,3 +405,86 @@ def test_regen_compare_install_with_matches_build_manifests():
         assert (
             regen_compare.load_package_install_with(slug) == pkg["install_with"]
         )
+
+
+import json as _json
+
+
+def test_fetch_pypi_upload_dates_picks_earliest_and_filters(monkeypatch):
+    payload = {
+        "releases": {
+            "1.0": [
+                {"upload_time_iso_8601": "2026-01-02T00:00:00.000000Z", "yanked": False},
+                {"upload_time_iso_8601": "2026-01-01T00:00:00.000000Z", "yanked": False},
+            ],
+            "0.9": [  # yanked-only release: excluded
+                {"upload_time_iso_8601": "2025-12-01T00:00:00.000000Z", "yanked": True}
+            ],
+            "0.8": [],  # file-less release: excluded
+        }
+    }
+
+    class FakeResp:
+        def read(self):
+            return _json.dumps(payload).encode()
+        def __enter__(self):
+            return self
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr(
+        build_manifests.urllib.request, "urlopen", lambda *a, **k: FakeResp()
+    )
+    dates = build_manifests.fetch_pypi_upload_dates("whatever")
+    assert dates == {"1.0": "2026-01-01T00:00:00.000000Z"}
+
+
+def test_build_one_stamps_generation_date_from_pypi(tmp_path, monkeypatch):
+    from datetime import datetime
+    seen = _plumbed_build_one(
+        tmp_path, monkeypatch, None,
+        upload_date="2026-06-24T09:12:34.123456Z",
+    )
+    assert seen["doc"].manifest.generation.date == datetime.fromisoformat(
+        "2026-06-24T09:12:34.123456Z"
+    )
+
+
+def test_build_one_writes_gzip_with_zeroed_mtime(tmp_path, monkeypatch):
+    _plumbed_build_one(
+        tmp_path, monkeypatch, None,
+        upload_date="2026-06-24T09:12:34.123456Z",
+    )
+    data = (
+        tmp_path / "p" / "pocket-coffea" / "0.9.13.lcp.json.gz"
+    ).read_bytes()
+    # Bytes 4..8 are the gzip MTIME header; mtime=0 zeroes them so identical
+    # content always serializes identically.
+    assert data[4:8] == b"\x00\x00\x00\x00"
+
+
+def _doc_with_path(path):
+    impl = type("A", (), {"path": path})()
+    entry = type("E", (), {"implementation": impl})()
+    doc = type("D", (), {"detailed_index": {"pkg:Sym": entry}})()
+    return doc, impl
+
+
+def test_relativize_source_paths_strips_to_site_packages():
+    doc, impl = _doc_with_path(
+        "/var/folders/x/T/lcp-pop-iniconfig-ab12/venv/lib/python3.12/"
+        "site-packages/iniconfig/__init__.py"
+    )
+    build_manifests.relativize_source_paths(doc)
+    assert impl.path == "iniconfig/__init__.py"
+
+
+def test_relativize_source_paths_leaves_non_site_packages_untouched():
+    doc, impl = _doc_with_path("src/iniconfig/__init__.py")
+    build_manifests.relativize_source_paths(doc)
+    assert impl.path == "src/iniconfig/__init__.py"
+
+
+def test_relativize_source_paths_handles_missing_index():
+    doc = type("D", (), {"detailed_index": None})()
+    build_manifests.relativize_source_paths(doc)  # no attribute error

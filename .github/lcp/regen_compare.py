@@ -191,9 +191,10 @@ def main() -> None:
             )
             sys.exit(1)
         print(f"Rescanning import '{import_name}' with pinned lcp ...")
+        # lcp 2.0.0 wraps the document in a ScanResult; compare the document.
         regen = scan_package_subprocess(
             import_name, python=str(py), timeout=SCAN_TIMEOUT
-        )
+        ).document
 
     sub_ids = set(submitted.symbols)
     new_ids = set(regen.symbols)
