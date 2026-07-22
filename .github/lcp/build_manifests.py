@@ -52,6 +52,7 @@ import threading
 import urllib.request
 import venv
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 from pathlib import Path
 from typing import NamedTuple
 
@@ -175,6 +176,34 @@ def fetch_pypi_versions(dist: str) -> list[str]:
     return out
 
 
+def fetch_pypi_upload_dates(dist: str) -> dict[str, str]:
+    """Map each non-yanked release version of *dist* to its publication time.
+
+    The publication time is the EARLIEST upload_time_iso_8601 across that
+    release's files — the moment the version first appeared on PyPI. build_one
+    stamps it into generation.date so the registry shows the release date (not
+    the scan time) and, with mtime=0 gzip, an unchanged manifest regenerates to
+    identical bytes. Yanked-only and file-less releases are skipped, matching
+    fetch_pypi_versions.
+    """
+    with urllib.request.urlopen(
+        f"https://pypi.org/pypi/{dist}/json", timeout=30
+    ) as resp:
+        releases = json.load(resp).get("releases", {})
+    out: dict[str, str] = {}
+    for v_str, files in releases.items():
+        if not files or all(f.get("yanked") for f in files):
+            continue
+        times = [
+            f["upload_time_iso_8601"]
+            for f in files
+            if f.get("upload_time_iso_8601")
+        ]
+        if times:
+            out[v_str] = min(times)
+    return out
+
+
 # scan_package_subprocess offers no env parameter — its child inherits this
 # process's os.environ — so per-package variables reach the scan by patching
 # os.environ around the call. The lock keeps concurrent patches from
@@ -272,6 +301,7 @@ class BuildJob(NamedTuple):
     pkg_env: dict[str, str]
     constraints: list[str]
     install_with: list[str]
+    upload_date: str | None
 
 
 def build_one(
@@ -281,6 +311,7 @@ def build_one(
     pkg_env: dict[str, str] | None = None,
     constraints: list[str] | None = None,
     install_with: list[str] | None = None,
+    upload_date: str | None = None,
 ) -> str:
     pkg_env = pkg_env or {}
     slug = normalize_package_name(dist)
@@ -315,9 +346,20 @@ def build_one(
     # (pyyaml/yaml, pillow/PIL) and yields "0.0.0". We installed
     # dist==version, so that IS the manifest's version — set it.
     doc.manifest.library.version = version
+    # Stamp the version's PyPI publication time (not the scan time): the site
+    # reads generation.date, and a stable per-version date keeps regeneration
+    # byte-idempotent. Fall back to the scanner's date only when no PyPI date
+    # was resolvable (handled by the caller passing upload_date=None).
+    if upload_date is not None and doc.manifest.generation is not None:
+        doc.manifest.generation.date = datetime.fromisoformat(upload_date)
     validate_or_raise(doc)
     pkg_dir.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(gzip.compress(doc.to_json(indent=2).encode("utf-8")))
+    # mtime=0: gzip embeds the current time in its header by default, which
+    # would make every regeneration produce different bytes even for identical
+    # content, defeating "commit only what changed".
+    out_path.write_bytes(
+        gzip.compress(doc.to_json(indent=2).encode("utf-8"), mtime=0)
+    )
     return (
         f"{slug}=={version}: {len(doc.symbols)} symbols "
         f"-> {out_path.relative_to(REPO_ROOT)}"
@@ -407,18 +449,29 @@ def main() -> None:
             if not found:
                 print(f"FAIL {dist}: no manifests on disk to regenerate")
                 continue
+            try:
+                upload_dates = fetch_pypi_upload_dates(dist)
+            except Exception as exc:
+                print(f"::warning::{dist}: PyPI upload dates unavailable: {exc}")
+                upload_dates = {}
             for gz in found:
                 version = gz.name[: -len(".lcp.json.gz")]
+                old_date = None
                 try:
                     old = json.loads(gzip.decompress(gz.read_bytes()))
                     import_name = old["manifest"]["library"]["name"]
+                    old_date = (old["manifest"].get("generation") or {}).get("date")
                 except (OSError, KeyError, json.JSONDecodeError, gzip.BadGzipFile):
                     import_name = pkg.get("import_name")
+                # Prefer PyPI's publication time; fall back to the existing
+                # manifest's date for versions no longer on PyPI (yanked/removed)
+                # so their regen stays byte-stable instead of churning.
                 jobs.append(
                     BuildJob(
                         dist, version, import_name,
                         pkg.get("env", {}), pkg.get("constraints", []),
                         pkg.get("install_with", []),
+                        upload_dates.get(version) or old_date,
                     )
                 )
     else:
@@ -440,11 +493,17 @@ def main() -> None:
             if not versions:
                 print(f"SKIP {dist} (up-to-date on disk)")
                 continue
+            try:
+                upload_dates = fetch_pypi_upload_dates(pkg["name"])
+            except Exception as exc:
+                print(f"::warning::{dist}: PyPI upload dates unavailable: {exc}")
+                upload_dates = {}
             for version in versions:
                 jobs.append(
                     BuildJob(
                         dist, version, pkg["import_name"],
                         pkg["env"], pkg["constraints"], pkg["install_with"],
+                        upload_dates.get(version),
                     )
                 )
 
