@@ -1,7 +1,7 @@
 # lcp is pinned to an exact PyPI release: every manifest in this registry is
 # generated and verified with the SAME code. Bump ONLY together with a planned
 # registry-wide regeneration (see README "Verification & trust").
-lcp==2.0.0
+lcp==2.0.1
 packaging>=24.0
 pyyaml>=6.0
 requests>=2.32.0
