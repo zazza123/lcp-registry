@@ -196,12 +196,6 @@ python:
     include_prereleases: true
   - name: azure-ai-ml
     import_name: azure.ai.ml
-    # Newest version only, until the scanner fix for quadratic class source
-    # lookup ships in the pinned lcp. With lcp 2.0.1 on Python 3.12, 1.34.x
-    # (24 generated _restclient model files of ~1.7 MB each) exceeds the 600s
-    # scan timeout, failing the weekly job since 2026-08-24 and blocking the
-    # 1.35.0 manifest too (~110s scan). Restore the default once the pin moves.
-    keep_versions: 1
   - name: orbitals
   # Phase-8 benchmark targets: tracked at exactly the version pinned by the
   # benchmark harness (all currently the PyPI latest). keep_versions: 1 so the
